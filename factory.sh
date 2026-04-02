@@ -13,17 +13,17 @@ TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
 STATUS_DIR="$SHIPYARD/.status"
 mkdir -p "$LOGDIR" "$DONE_DIR" "$LOCK_DIR" "$STATUS_DIR"
-WORKER_ID="${SHIPYARD_WORKER_ID:-0}"
-LOGFILE="$LOGDIR/$TIMESTAMP-w$WORKER_ID.log"
+AGENT_ID="${SHIPYARD_AGENT_ID:-0}"
+LOGFILE="$LOGDIR/$TIMESTAMP-w$AGENT_ID.log"
 WORKTREE_DIR=""
 
-if [ "$WORKER_ID" = "0" ]; then
+if [ "$AGENT_ID" = "0" ]; then
   log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
 else
-  log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "[W$WORKER_ID] $1"; }
+  log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "[A$AGENT_ID] $1"; }
 fi
 stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
-update_status() { echo "$1" > "$STATUS_DIR/worker-$WORKER_ID"; }
+update_status() { echo "$1" > "$STATUS_DIR/agent-$AGENT_ID"; }
 
 # ── Ctrl+C cleanup ────────────────────────────────────────
 cleanup() {
@@ -44,23 +44,23 @@ cleanup() {
 }
 trap cleanup INT
 
-# ── PARALLEL: spawn N workers ─────────────────────────────
+# ── PARALLEL: spawn N agents ──────────────────────────────
 if [ "$1" = "--parallel" ]; then
-  WORKERS="${2:-3}"
-  rm -f "$STATUS_DIR"/worker-* 2>/dev/null
+  AGENTS="${2:-3}"
+  rm -f "$STATUS_DIR"/agent-* 2>/dev/null
 
-  echo "━━━ SHIPYARD: $WORKERS parallel workers ━━━"
+  echo "━━━ SHIPYARD: $AGENTS parallel agents ━━━"
   echo ""
 
   PIDS=""
-  for i in $(seq 1 "$WORKERS"); do
-    SHIPYARD_WORKER_ID="$i" bash "$0" &
+  for i in $(seq 1 "$AGENTS"); do
+    SHIPYARD_AGENT_ID="$i" bash "$0" &
     PIDS="$PIDS $!"
     sleep 1
   done
   echo ""
 
-  # Wait for all workers (output streams live with [WN] prefix)
+  # Wait for all agents (output streams live with [AN] prefix)
   FAILED=0
   for pid in $PIDS; do
     wait "$pid" || FAILED=$((FAILED + 1))
@@ -69,7 +69,7 @@ if [ "$1" = "--parallel" ]; then
   # Final summary
   echo ""
   echo "━━━ SUMMARY ━━━"
-  for i in $(seq 1 "$WORKERS"); do
+  for i in $(seq 1 "$AGENTS"); do
     STATUS="unknown"
     if [ -f "$STATUS_DIR/worker-$i" ]; then
       STATUS=$(cat "$STATUS_DIR/worker-$i")
@@ -77,7 +77,7 @@ if [ "$1" = "--parallel" ]; then
     echo "  W$i: $STATUS"
   done
   echo ""
-  rm -f "$STATUS_DIR"/worker-* 2>/dev/null
+  rm -f "$STATUS_DIR"/agent-* 2>/dev/null
   exit $FAILED
 fi
 
