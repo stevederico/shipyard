@@ -174,7 +174,7 @@ fi
 
 # ── BRANCH ────────────────────────────────────────────────
 stage "BRANCH"
-BRANCH="factory/$TASK_NAME"
+BRANCH="shipyard/$TASK_NAME"
 if [ "$IS_NEW_REPO" = false ] && [ "$DRY_RUN" = false ]; then
   git branch -D "$BRANCH" 2>/dev/null
   git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
