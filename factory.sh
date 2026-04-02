@@ -7,11 +7,9 @@ TODOS="$HOME/todos.md"
 PROJECTS="$HOME/Desktop/projects"
 DATE=$(date +"%m/%d/%y")
 
-# Get highest priority task (sort by [N] descending, take first)
-TASK=$(sed -n '/^## Tasks$/,/^## /{/^- /p}' "$TODOS" \
-  | sed 's/^- //' \
-  | sort -t'[' -k2 -rn \
-  | head -1)
+# Get first task: WIP first, then Tasks
+TASK=$(awk '/^## (WIP|Tasks)$/{found=1;next} /^## /{found=0} found && /^- /{print; exit}' "$TODOS" \
+  | sed 's/^- //')
 
 if [ -z "$TASK" ]; then
   echo "No tasks"
@@ -36,12 +34,14 @@ TASK: $TASK_CLEAN
 Steps:
 1. Figure out which project in $PROJECTS this task belongs to (ls the directory, match by name)
 2. cd to that project and git pull origin master
-3. Create a feature branch: factory/$(date +%Y%m%d-%H%M)
-4. Complete the task
-5. Run tests if they exist (deno run test)
-6. If tests pass: commit and push the branch, then open a PR via gh pr create
-7. If no tests exist: commit and push the branch, open a PR
-8. At the end, print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
+3. Read todo.md in the project root if it exists — it has detailed context for this task
+4. Read CLAUDE.md in the project root if it exists — it has project-specific instructions
+5. Create a feature branch: factory/$(date +%Y%m%d-%H%M)
+6. Complete the task
+7. Run tests if they exist (deno run test)
+8. If tests pass: commit and push the branch, then open a PR via gh pr create
+9. If no tests exist: commit and push the branch, open a PR
+10. At the end, print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
 " --dangerously-skip-permissions 2>&1 | tee /tmp/factory-latest.log
 
 # Check if Claude reported success
