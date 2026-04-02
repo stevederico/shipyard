@@ -13,10 +13,9 @@ mkdir -p "$LOGDIR"
 LOGFILE="$LOGDIR/$TIMESTAMP.log"
 
 log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
+stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
 
-log "=== Shipyard Factory ==="
-
-# Get first task: WIP first, then Tasks
+stage "PICK"
 log "Reading tasks from $TODOS"
 TASK=$(awk '/^## (WIP|Tasks)$/{found=1;next} /^## /{found=0} found && /^- /{print; exit}' "$TODOS" \
   | sed 's/^- //')
@@ -35,18 +34,29 @@ if [ "$1" = "--dry-run" ]; then
   exit 0
 fi
 
-log "Starting Claude session..."
-log "---claude-session-start---"
+stage "CLAUDE SESSION"
 
 # Let Claude figure out the project, code it, test it, ship it
 claude -p "
 You are running in factory mode. Complete this task autonomously.
-Narrate what you are doing at each step so the log is readable.
 
 TASK: $TASK_CLEAN
 
+Print a stage header before each step using this exact format:
+  [STAGE: NAME] description
+
+The stages are:
+  [STAGE: ROUTE] Finding the project directory
+  [STAGE: PULL] Git pulling latest
+  [STAGE: PLAN] Reading todo.md and CLAUDE.md, selecting subtask
+  [STAGE: BRANCH] Creating feature branch
+  [STAGE: CODE] Implementing the task (narrate what you are building)
+  [STAGE: TEST] Running tests
+  [STAGE: SHIP] Committing, pushing, opening PR
+  [STAGE: UPDATE] Marking subtask done in project todo.md
+
 Steps:
-1. Figure out which project in $PROJECTS this task belongs to (ls the directory, match by name)
+1. Find which project in $PROJECTS this task belongs to (ls the directory, match by name)
 2. cd to that project and git pull origin master
 3. Read CLAUDE.md in the project root if it exists — it has project-specific instructions
 4. Read todo.md in the project root if it exists — pick the FIRST incomplete item (lines starting with '- ')
@@ -59,41 +69,16 @@ Steps:
 11. After shipping, mark the subtask as done in todo.md (remove the '- ' prefix)
 12. At the end, print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
 13. Also print FACTORY_REMAINING:N where N is the number of '- ' lines still in todo.md (0 if no todo.md)
-" --dangerously-skip-permissions --output-format stream-json 2>&1 | while IFS= read -r line; do
-  # Parse streaming JSON for human-readable output
-  TYPE=$(echo "$line" | python3 -c "import sys,json
-try:
-  d=json.load(sys.stdin)
-  t=d.get('type','')
-  if t=='assistant':
-    msg=d.get('message',{})
-    for b in msg.get('content',[]):
-      if b.get('type')=='text': print('text:'+b['text'])
-      elif b.get('type')=='tool_use': print('tool:'+b.get('name','')+' → '+str(b.get('input',{}).get('command',b.get('input',{}).get('pattern',b.get('input',{}).get('file_path','')))))
-  elif t=='result':
-    for b in d.get('content',[]):
-      if b.get('type')=='text': print('result:'+b['text'])
-except: pass" 2>/dev/null)
-  if [ -n "$TYPE" ]; then
-    echo "$TYPE" | while IFS= read -r parsed; do
-      case "$parsed" in
-        tool:*) log "  🔧 ${parsed#tool:}" ;;
-        text:*) log "  ${parsed#text:}" ;;
-        result:*) log "  ${parsed#result:}" ;;
-      esac
-    done
-  fi
-  echo "$line" >> "$LOGFILE.raw.json"
-done
+" --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
-log "---claude-session-end---"
+stage "DONE"
 
-# Check result from raw JSON log
-if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE.raw.json" 2>/dev/null; then
-  log "✓ Subtask completed successfully"
+# Check result from log
+if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
+  log "Subtask completed successfully"
 
   # Check how many subtasks remain in the project's todo.md
-  REMAINING=$(grep -o "FACTORY_REMAINING:[0-9]*" "$LOGFILE.raw.json" | tail -1 | cut -d: -f2)
+  REMAINING=$(grep -o "FACTORY_REMAINING:[0-9]*" "$LOGFILE" | tail -1 | cut -d: -f2)
   log "Remaining subtasks: ${REMAINING:-unknown}"
 
   if [ "$REMAINING" = "0" ]; then
@@ -118,7 +103,5 @@ $TASK_CLEAN\\
     log "Project has $REMAINING subtasks remaining — keeping in global todos"
   fi
 else
-  log "✗ Task failed (see $LOGFILE.raw.json)"
+  log "Task failed — check log: $LOGFILE"
 fi
-
-log "=== Done ==="
