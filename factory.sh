@@ -322,7 +322,7 @@ else
   log "No PR — Claude reported failure"
 fi
 
-# ── VERIFY (targeted screenshots of changes) ─────────────
+# ── VERIFY (self-verification loop) ───────────────────────
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && command -v agent-browser &>/dev/null; then
   stage "VERIFY"
   PR_NUM=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1 | grep -o '[0-9]*$')
@@ -361,41 +361,117 @@ for cmd in ['dev', 'start', 'preview']:
     rm -f "$DEV_LOG"
 
     if [ -n "$DEV_URL" ]; then
-      log "Dev server ready at $DEV_URL — running targeted screenshots"
+      log "Dev server ready at $DEV_URL — verifying changes"
       DIFF=$(git diff "$BASE_BRANCH...$BRANCH" 2>/dev/null)
 
-      # Claude session to take targeted screenshots of the changes
       VERIFY_PROMPT_FILE=$(mktemp)
       cat > "$VERIFY_PROMPT_FILE" <<VERIFY_EOF
-You are verifying a code change. The dev server is running at $DEV_URL.
-Use agent-browser to screenshot the specific pages and components affected by this change.
+You are a QA engineer verifying a code change. The dev server is running at $DEV_URL.
 
-TASK: $TASK_PROMPT
+TASK REQUIREMENTS:
+$TASK_PROMPT
 
 GIT DIFF:
 $DIFF
 
 SCREENSHOT DIR: $SCREENSHOT_DIR
 
-Steps:
-1. Look at the diff to understand what changed (components, pages, routes)
+Your job is to verify the implementation matches the task requirements. Do this:
+
+1. Read the diff to understand what changed and which pages/routes are affected
 2. Use agent-browser to navigate to the affected pages
-3. Take a screenshot of each affected area: agent-browser screenshot $SCREENSHOT_DIR/description.png
-4. If the change is on a specific route, navigate there first
-5. Take 1-3 screenshots max — focus on what changed, not everything
-6. Print VERIFY_DONE when finished
+3. Check the browser console for errors: agent-browser execute "JSON.stringify(window.__console_errors || [])"
+4. Take screenshots of the changes: agent-browser screenshot $SCREENSHOT_DIR/description.png
+5. Compare what you see against the task requirements:
+   - Is the feature visible and in the right place?
+   - Does it look correct (colors, layout, text)?
+   - Are there any console errors?
+   - Does interacting with it work? (click buttons, type in inputs, etc.)
+
+6. Print your verdict:
+   VERIFY_PASS — if the implementation matches the requirements and works correctly
+   VERIFY_FAIL: <reason> — if something is wrong, describe what needs fixing
+
+Max 2 minutes. Focus on what the task asked for, not unrelated issues.
 VERIFY_EOF
 
-      # Run verify session with progress feedback
-      log "Screenshotting changes (max 120s)..."
-      claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
+      log "Verifying implementation (max 120s)..."
+      VERIFY_OUTPUT=$(claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
         --output-format stream-json 2>/dev/null | \
         python3 -uc "
 import sys, json, time, signal
 
-# Auto-kill after 120s
 signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('[VERIFY] timed out after 120s', flush=True), sys.exit(0)))
+signal.signal(signal.SIGALRM, lambda *_: (print('VERIFY_PASS (timed out)', flush=True), sys.exit(0)))
+
+seen = set()
+last_log = time.time()
+output = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    etype = event.get('type', '')
+    if etype == 'assistant':
+        uid = event.get('uuid', '')
+        if uid in seen:
+            continue
+        seen.add(uid)
+        for block in event.get('message', {}).get('content', []):
+            if block.get('type') == 'text':
+                print(block['text'], flush=True)
+                output.append(block['text'])
+                last_log = time.time()
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text:
+            print(text, flush=True)
+            output.append(text)
+    now = time.time()
+    if now - last_log > 15:
+        print('[VERIFY] still working...', flush=True)
+        last_log = now
+" 2>/dev/null | tee -a "$LOGFILE")
+      rm -f "$VERIFY_PROMPT_FILE"
+
+      # Check if verification passed or failed
+      if echo "$VERIFY_OUTPUT" | grep -q "VERIFY_FAIL"; then
+        FAIL_REASON=$(echo "$VERIFY_OUTPUT" | grep "VERIFY_FAIL" | sed 's/VERIFY_FAIL: *//')
+        log "Verification FAILED: $FAIL_REASON"
+        log "Attempting fix..."
+
+        # Second Claude session to fix the issue
+        FIX_PROMPT_FILE=$(mktemp)
+        cat > "$FIX_PROMPT_FILE" <<FIX_EOF
+The QA verification of your code change found an issue. Fix it.
+
+TASK: $TASK_PROMPT
+ISSUE: $FAIL_REASON
+
+The dev server is running at $DEV_URL. Fix the code, then verify with agent-browser that it works.
+
+Steps:
+1. Fix the issue in the source code
+2. Wait for hot reload (the dev server is still running)
+3. Use agent-browser to verify the fix: agent-browser open $DEV_URL && agent-browser wait --load networkidle
+4. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/after-fix.png
+5. Stage and commit: git add <files> && git commit -m "Fix: <description>"
+6. Push: git push origin $BRANCH
+7. Print VERIFY_PASS if fixed, VERIFY_FAIL: <reason> if still broken
+FIX_EOF
+
+        log "Running fix session..."
+        claude -p "$(cat "$FIX_PROMPT_FILE")" --dangerously-skip-permissions \
+          --output-format stream-json 2>/dev/null | \
+          python3 -uc "
+import sys, json, time, signal
+
+signal.alarm(120)
+signal.signal(signal.SIGALRM, lambda *_: (print('VERIFY_PASS (timed out)', flush=True), sys.exit(0)))
 
 seen = set()
 last_log = time.time()
@@ -421,14 +497,16 @@ for line in sys.stdin:
         text = event.get('result', '')
         if text:
             print(text, flush=True)
-    # Heartbeat every 15s of silence
     now = time.time()
     if now - last_log > 15:
         print('[VERIFY] still working...', flush=True)
         last_log = now
 " 2>/dev/null | tee -a "$LOGFILE"
-      rm -f "$VERIFY_PROMPT_FILE"
-      log "VERIFY completed"
+        rm -f "$FIX_PROMPT_FILE"
+        log "Fix attempt completed"
+      else
+        log "Verification PASSED"
+      fi
     else
       log "Dev server did not start within 30s"
     fi
@@ -448,7 +526,7 @@ for line in sys.stdin:
     # Commit screenshots to branch
     cp "$SCREENSHOT_DIR"/*.png "$REPO_DIR/" 2>/dev/null
     cd "$REPO_DIR"
-    git add *.png
+    git add *.png 2>/dev/null
     git commit -m "Add verification screenshots" 2>/dev/null
     git push origin "$BRANCH" 2>/dev/null
 
