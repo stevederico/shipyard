@@ -892,7 +892,7 @@ else
 fi
 
 # ── CI GATE (watch GitHub Actions, fix failures) ─────────
-if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && [ -d "$REPO_DIR/.github/workflows" ]; then
+if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   stage "CI"
   update_status "$TASK_NAME — watching CI"
   PR_NUM_CI=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1 | grep -o '[0-9]*$')
