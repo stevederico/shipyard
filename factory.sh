@@ -171,6 +171,11 @@ for pr in prs:
       continue
     fi
 
+    # Kill stale processes on dev ports before starting
+    echo "  Clearing ports 3000, 5173-5182, 8000..."
+    lsof -ti :3000,:5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
+    sleep 1
+
     # Start backend if it exists
     BACKEND_PID=""
     if [ -f "backend/package.json" ]; then
@@ -761,6 +766,11 @@ for cmd in ['start', 'dev', 'preview']:
   fi
 
   if [ -n "$DEV_CMD" ]; then
+    # Kill stale processes on dev ports before starting
+    log "Clearing ports 3000, 5173-5182, 8000..."
+    lsof -ti :3000,:5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
+    sleep 1
+
     # Install deps (worktree symlinks may be broken)
     if [ -n "$WORKTREE_DIR" ] && [ -f "package.json" ]; then
       log "Installing dependencies..."
