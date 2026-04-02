@@ -11,12 +11,19 @@ PROJECTS="${SHIPYARD_PROJECTS:-$(dirname "$SHIPYARD")}"
 LOGDIR="$SHIPYARD/logs"
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
-mkdir -p "$LOGDIR" "$DONE_DIR" "$LOCK_DIR"
-LOGFILE="$LOGDIR/$TIMESTAMP.log"
+STATUS_DIR="$SHIPYARD/.status"
+mkdir -p "$LOGDIR" "$DONE_DIR" "$LOCK_DIR" "$STATUS_DIR"
+WORKER_ID="${SHIPYARD_WORKER_ID:-0}"
+LOGFILE="$LOGDIR/$TIMESTAMP-w$WORKER_ID.log"
 WORKTREE_DIR=""
 
-log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
+if [ "$WORKER_ID" = "0" ]; then
+  log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
+else
+  log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "[W$WORKER_ID] $1"; }
+fi
 stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
+update_status() { echo "$1" > "$STATUS_DIR/worker-$WORKER_ID"; }
 
 # ── Ctrl+C cleanup ────────────────────────────────────────
 cleanup() {
@@ -37,22 +44,66 @@ cleanup() {
 }
 trap cleanup INT
 
-# ── PARALLEL: spawn N workers ─────────────────────────────
+# ── PARALLEL: spawn N workers with dashboard ──────────────
 if [ "$1" = "--parallel" ]; then
   WORKERS="${2:-3}"
-  log "Spawning $WORKERS parallel workers"
+  rm -f "$STATUS_DIR"/worker-* 2>/dev/null
+
+  echo "━━━ SHIPYARD: $WORKERS parallel workers ━━━"
+  echo ""
+
   PIDS=""
   for i in $(seq 1 "$WORKERS"); do
-    bash "$0" &
+    SHIPYARD_WORKER_ID="$i" bash "$0" > "$LOGDIR/$TIMESTAMP-w$i-out.log" 2>&1 &
     PIDS="$PIDS $!"
-    sleep 1  # stagger so locks don't collide
+    echo "  Worker $i started (PID $!)"
+    sleep 1
   done
-  # Wait for all workers
+  echo ""
+
+  # Dashboard loop — poll status files every 3s
+  ALL_DONE=false
+  while [ "$ALL_DONE" = false ]; do
+    sleep 3
+    ALL_DONE=true
+
+    # Clear and redraw
+    printf "\033[2K\r"
+    echo "━━━ DASHBOARD ━━━"
+    for i in $(seq 1 "$WORKERS"); do
+      STATUS="waiting..."
+      if [ -f "$STATUS_DIR/worker-$i" ]; then
+        STATUS=$(cat "$STATUS_DIR/worker-$i")
+      fi
+      echo "  W$i: $STATUS"
+    done
+    echo ""
+
+    # Check if any workers still running
+    for pid in $PIDS; do
+      if kill -0 "$pid" 2>/dev/null; then
+        ALL_DONE=false
+      fi
+    done
+  done
+
+  # Final summary
   FAILED=0
   for pid in $PIDS; do
     wait "$pid" || FAILED=$((FAILED + 1))
   done
-  log "All workers done ($FAILED failed)"
+
+  echo "━━━ COMPLETE ━━━"
+  for i in $(seq 1 "$WORKERS"); do
+    STATUS="unknown"
+    if [ -f "$STATUS_DIR/worker-$i" ]; then
+      STATUS=$(cat "$STATUS_DIR/worker-$i")
+    fi
+    echo "  W$i: $STATUS"
+  done
+  echo ""
+  echo "Logs: $LOGDIR/$TIMESTAMP-w*"
+  rm -f "$STATUS_DIR"/worker-* 2>/dev/null
   exit $FAILED
 fi
 
@@ -97,6 +148,7 @@ fi
 
 # ── 1/12 PICK ──────────────────────────────────────────────
 stage "PICK"
+update_status "picking task..."
 log "Reading tasks from $TASK_DIR"
 
 # Find first unlocked task
@@ -115,6 +167,7 @@ find "$LOCK_DIR" -maxdepth 1 -name '*.lock' -type d -mmin +30 -exec rm -rf {} \;
 
 if [ -z "$TASK_FILE" ]; then
   log "No pending tasks (or all locked)"
+  update_status "idle — no tasks"
   exit 0
 fi
 
@@ -133,6 +186,7 @@ fi
 
 log "Task: $TASK_NAME"
 log "Repo: ${TASK_REPO:-(new repo)}"
+update_status "$TASK_NAME — picked"
 
 DRY_RUN=false
 if [ "$1" = "--dry-run" ]; then
@@ -141,6 +195,7 @@ fi
 
 # ── 2/12 ROUTE ─────────────────────────────────────────────
 stage "ROUTE"
+update_status "$TASK_NAME — routing"
 
 if [ -n "$TASK_REPO" ]; then
   # 1. Check local directory
@@ -189,6 +244,7 @@ log "Repo: $REPO_NAME ($REPO_DIR)"
 
 # ── 3/12 PULL ──────────────────────────────────────────────
 stage "PULL"
+update_status "$TASK_NAME — pulling"
 cd "$REPO_DIR" 2>/dev/null
 if [ "$IS_NEW_REPO" = false ]; then
   HAS_REMOTE=$(git remote 2>/dev/null | head -1)
@@ -254,6 +310,7 @@ fi
 
 # ── CODE + TEST (Claude session) ──────────────────────────
 stage "CODE"
+update_status "$TASK_NAME — coding..."
 log "Ctrl+C to cancel. Monitor: tail -f $LOGFILE"
 CODE_START=$(date +%s)
 
@@ -319,6 +376,7 @@ log "Claude session completed in ${CODE_ELAPSED}s"
 
 # ── LINT (deterministic checks) ───────────────────────────
 stage "LINT"
+update_status "$TASK_NAME — linting"
 LINT_PASS=true
 LINT_FAILURES=""
 
@@ -362,6 +420,7 @@ fi
 # ── FIX (Claude fixes lint failures — max 2 attempts) ────
 if [ -n "$LINT_FAILURES" ]; then
   stage "FIX"
+  update_status "$TASK_NAME — fixing lint"
   FIX_ATTEMPT=0
   MAX_FIX_ATTEMPTS=2
 
@@ -459,6 +518,7 @@ fi
 
 # ── SHIP ──────────────────────────────────────────────────
 stage "SHIP"
+update_status "$TASK_NAME — shipping"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "PR shipped on branch $BRANCH"
 else
@@ -468,6 +528,7 @@ fi
 # ── VERIFY (self-verification loop) ───────────────────────
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && command -v agent-browser &>/dev/null; then
   stage "VERIFY"
+  update_status "$TASK_NAME — verifying"
   PR_NUM=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1 | grep -o '[0-9]*$')
   SCREENSHOT_DIR="$LOGDIR/screenshots/$TASK_NAME"
   mkdir -p "$SCREENSHOT_DIR"
@@ -713,8 +774,10 @@ fi
 stage "DONE"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "Factory run successful"
+  update_status "$TASK_NAME ✓ done"
 else
   log "Factory run failed — check log: $LOGFILE"
+  update_status "$TASK_NAME ✗ failed"
 fi
 
 # Clean up worktree and lock
