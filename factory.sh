@@ -171,10 +171,39 @@ for pr in prs:
       continue
     fi
 
-    # Kill stale processes on dev ports before starting
-    echo "  Clearing ports 3000, 5173-5182, 8000..."
-    lsof -ti :3000,:5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
-    sleep 1
+    # Detect ports from project config and clear them
+    DEV_PORTS=$(python3 -c "
+import json, re, os
+ports = set()
+for f in ['vite.config.js', 'vite.config.ts']:
+    if os.path.exists(f):
+        content = open(f).read()
+        m = re.search(r'port\s*:\s*(\d+)', content)
+        if m: ports.add(m.group(1))
+for f in ['backend/config.json', 'backend/server.js', 'backend/index.js']:
+    if os.path.exists(f):
+        content = open(f).read()
+        for m in re.finditer(r'(?:port|PORT)\s*[:=]\s*[\"'\'']*(\d+)', content):
+            ports.add(m.group(1))
+for f in ['.env', 'backend/.env']:
+    if os.path.exists(f):
+        for line in open(f):
+            m = re.match(r'PORT\s*=\s*(\d+)', line)
+            if m: ports.add(m.group(1))
+for f in ['package.json', 'backend/package.json']:
+    if os.path.exists(f):
+        scripts = json.load(open(f)).get('scripts', {})
+        for v in scripts.values():
+            for m in re.finditer(r'--port\s+(\d+)', v):
+                ports.add(m.group(1))
+if not ports: ports.add('5173')
+print(','.join(sorted(ports)))
+" 2>/dev/null)
+    if [ -n "$DEV_PORTS" ]; then
+      echo "  Clearing ports $DEV_PORTS..."
+      lsof -ti :$DEV_PORTS 2>/dev/null | xargs kill 2>/dev/null
+      sleep 1
+    fi
 
     # Start backend if it exists
     BACKEND_PID=""
@@ -211,7 +240,7 @@ for cmd in ['start', 'dev']:
       echo "  Dev server failed to start — skipping"
       kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
       if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
-      lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
+      [ -n "$DEV_PORTS" ] && lsof -ti :$DEV_PORTS 2>/dev/null | xargs kill 2>/dev/null
       git checkout "$BASE_BRANCH" 2>/dev/null
       echo ""
       continue
@@ -275,7 +304,7 @@ for line in sys.stdin:
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
     if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
-    lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
+    [ -n "$DEV_PORTS" ] && lsof -ti :$DEV_PORTS 2>/dev/null | xargs kill 2>/dev/null
 
     SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
     if [ -n "$SCREENSHOTS" ]; then
@@ -766,10 +795,44 @@ for cmd in ['start', 'dev', 'preview']:
   fi
 
   if [ -n "$DEV_CMD" ]; then
-    # Kill stale processes on dev ports before starting
-    log "Clearing ports 3000, 5173-5182, 8000..."
-    lsof -ti :3000,:5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
-    sleep 1
+    # Detect ports from project config and clear them
+    DEV_PORTS=$(python3 -c "
+import json, re, os
+ports = set()
+# Check vite.config for frontend port
+for f in ['vite.config.js', 'vite.config.ts']:
+    if os.path.exists(f):
+        content = open(f).read()
+        m = re.search(r'port\s*:\s*(\d+)', content)
+        if m: ports.add(m.group(1))
+# Check backend config for server port
+for f in ['backend/config.json', 'backend/server.js', 'backend/index.js']:
+    if os.path.exists(f):
+        content = open(f).read()
+        for m in re.finditer(r'(?:port|PORT)\s*[:=]\s*[\"'\'']*(\d+)', content):
+            ports.add(m.group(1))
+# Check .env for PORT
+for f in ['.env', 'backend/.env']:
+    if os.path.exists(f):
+        for line in open(f):
+            m = re.match(r'PORT\s*=\s*(\d+)', line)
+            if m: ports.add(m.group(1))
+# Check package.json scripts for --port flags
+for f in ['package.json', 'backend/package.json']:
+    if os.path.exists(f):
+        scripts = json.load(open(f)).get('scripts', {})
+        for v in scripts.values():
+            for m in re.finditer(r'--port\s+(\d+)', v):
+                ports.add(m.group(1))
+# Default frontend port if nothing found
+if not ports: ports.add('5173')
+print(','.join(sorted(ports)))
+" 2>/dev/null)
+    if [ -n "$DEV_PORTS" ]; then
+      log "Clearing ports $DEV_PORTS..."
+      lsof -ti :$DEV_PORTS 2>/dev/null | xargs kill 2>/dev/null
+      sleep 1
+    fi
 
     # Install deps (worktree symlinks may be broken)
     if [ -n "$WORKTREE_DIR" ] && [ -f "package.json" ]; then
@@ -977,7 +1040,7 @@ for line in sys.stdin:
       kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null
     fi
     # Kill any leftover node processes on the dev ports
-    lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
+    [ -n "$DEV_PORTS" ] && lsof -ti :$DEV_PORTS 2>/dev/null | xargs kill 2>/dev/null
   else
     log "No dev/start/preview script found — skipping verification"
   fi
