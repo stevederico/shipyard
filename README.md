@@ -40,9 +40,10 @@ Add tasks to `tasks.md`:
 ```markdown
 - [ ] my-app: Add dark mode toggle
 - [ ] another-app: Fix pagination bug
+- [ ] Build a weather dashboard
 ```
 
-The project name before the colon must match a directory in your projects folder.
+With a `project:` prefix, it routes to an existing project. Without one, it creates a new project (slugified from the description) with a GitHub repo.
 
 ## Schedule
 
@@ -55,8 +56,8 @@ crontab -e
 
 Based on patterns from Ramp Inspect and Stripe Minions:
 
-1. **Task queue** — self-contained `tasks.md` with `project: description` format
-2. **Task routing** — maps task to the right project directory automatically
+1. **Task queue** — self-contained `tasks.md` with optional `project:` prefix
+2. **Task routing** — maps to existing project or creates a new one
 3. **Branch isolation** — agents work on feature branches, never master
 4. **Autonomous coding** — Claude runs non-interactively with full permissions
 5. **Test verification** — run tests, fail fast if broken

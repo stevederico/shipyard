@@ -25,7 +25,7 @@ if [ ! -f "$TASKS" ]; then
   exit 0
 fi
 
-# First unchecked task: "- [ ] project: description"
+# First unchecked task: "- [ ] project: description" or "- [ ] description"
 TASK_LINE=$(grep -n '^\- \[ \] ' "$TASKS" | head -1)
 
 if [ -z "$TASK_LINE" ]; then
@@ -35,10 +35,16 @@ fi
 
 TASK_LINENUM=$(echo "$TASK_LINE" | cut -d: -f1)
 TASK_RAW=$(echo "$TASK_LINE" | cut -d: -f2- | sed 's/^- \[ \] //')
-# Parse "project: description" format
-TASK_PROJECT=$(echo "$TASK_RAW" | cut -d: -f1 | xargs)
-TASK_DESC=$(echo "$TASK_RAW" | cut -d: -f2- | xargs)
-log "Task: $TASK_PROJECT — $TASK_DESC"
+
+# Parse format: "project: description" or just "description"
+if echo "$TASK_RAW" | grep -q ':'; then
+  TASK_PROJECT=$(echo "$TASK_RAW" | cut -d: -f1 | xargs)
+  TASK_DESC=$(echo "$TASK_RAW" | cut -d: -f2- | xargs)
+else
+  TASK_PROJECT=""
+  TASK_DESC=$(echo "$TASK_RAW" | xargs)
+fi
+log "Task: ${TASK_PROJECT:-(new project)} — $TASK_DESC"
 
 if [ "$1" = "--dry-run" ]; then
   log "Dry run — stopping before execution"
@@ -47,12 +53,27 @@ fi
 
 # ── 2/12 ROUTE ─────────────────────────────────────────────
 stage "2/12 ROUTE"
-PROJECT_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_PROJECT" -type d 2>/dev/null | head -1)
+IS_NEW_PROJECT=false
 
-if [ -z "$PROJECT_DIR" ]; then
-  log "Could not find project: $TASK_PROJECT"
-  log "Available projects: $(ls "$PROJECTS" | head -20)"
-  exit 1
+if [ -n "$TASK_PROJECT" ]; then
+  PROJECT_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_PROJECT" -type d 2>/dev/null | head -1)
+  if [ -z "$PROJECT_DIR" ]; then
+    log "Could not find project: $TASK_PROJECT"
+    log "Available projects: $(ls "$PROJECTS" | head -20)"
+    exit 1
+  fi
+else
+  # Slugify description into a project name
+  PROJECT_NAME=$(echo "$TASK_DESC" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9 ]//g' \
+    | sed 's/^add //' | sed 's/^create //' | sed 's/^build //' | sed 's/^make //' \
+    | sed 's/^a //' | sed 's/^an //' | sed 's/^the //' \
+    | xargs | tr ' ' '-')
+  PROJECT_DIR="$PROJECTS/$PROJECT_NAME"
+  mkdir -p "$PROJECT_DIR"
+  cd "$PROJECT_DIR" && git init 2>&1 | tee -a "$LOGFILE"
+  IS_NEW_PROJECT=true
+  log "Created new project: $PROJECT_NAME ($PROJECT_DIR)"
 fi
 
 PROJECT_NAME=$(basename "$PROJECT_DIR")
@@ -61,7 +82,11 @@ log "Project: $PROJECT_NAME ($PROJECT_DIR)"
 # ── 3/12 PULL ──────────────────────────────────────────────
 stage "3/12 PULL"
 cd "$PROJECT_DIR"
-git pull origin master 2>&1 | tee -a "$LOGFILE"
+if [ "$IS_NEW_PROJECT" = false ]; then
+  git pull origin master 2>&1 | tee -a "$LOGFILE"
+else
+  log "New project — skipping pull"
+fi
 
 # ── 4/12 PLAN ──────────────────────────────────────────────
 stage "4/12 PLAN"
@@ -75,7 +100,11 @@ fi
 # ── 5/12 BRANCH ───────────────────────────────────────────
 stage "5/12 BRANCH"
 BRANCH="factory/$(date +%Y%m%d-%H%M)"
-git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
+if [ "$IS_NEW_PROJECT" = false ]; then
+  git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
+else
+  log "New project — working on default branch"
+fi
 log "Branch: $BRANCH"
 
 # Save pre-code state for lint checks
@@ -91,6 +120,7 @@ You are running in factory mode. Complete this subtask autonomously.
 
 SUBTASK: $SUBTASK
 PROJECT: $PROJECT_NAME
+NEW_PROJECT: $IS_NEW_PROJECT
 
 Print a stage header before each step:
   [STAGE 6/12: CODE] what you are building
@@ -108,17 +138,19 @@ Coding standards (enforce these regardless of project CLAUDE.md):
 - Umami analytics: add data-umami-event on interactive elements if analytics is wired up
 
 Steps:
-1. Implement the subtask
-2. Run tests if they exist (deno run test)
-3. If tests fail, fix and re-run (max 3 attempts)
-4. Stage only the files you modified (never git add . or git add -A)
-5. Commit with a descriptive message (no AI attribution, no Co-Authored-By)
-6. Update CHANGELOG.md (insert above previous, no dashes, 3 words max, present tense)
-7. Bump version in package.json if it exists (minor bump)
-8. Commit the version bump
-9. Push the branch: git push origin $BRANCH
-10. Open a PR: gh pr create --base master
-11. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
+1. If NEW_PROJECT is true, scaffold the project from scratch (create README, package.json, etc.)
+2. Implement the subtask
+3. Run tests if they exist (deno run test)
+4. If tests fail, fix and re-run (max 3 attempts)
+5. Stage only the files you modified (never git add . or git add -A)
+6. Commit with a descriptive message (no AI attribution, no Co-Authored-By)
+7. Update CHANGELOG.md (insert above previous, no dashes, 3 words max, present tense)
+8. Bump version in package.json if it exists (minor bump)
+9. Commit the version bump
+10. If NEW_PROJECT is true, create a GitHub repo: gh repo create PROJECT --public --source=. --push
+11. Push the branch: git push origin $BRANCH
+12. If NEW_PROJECT is false, open a PR: gh pr create --base master
+13. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
 " --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
 # ── 8/12 LINT (deterministic checks) ──────────────────────
@@ -195,5 +227,7 @@ else
   log "Factory run failed — check log: $LOGFILE"
 fi
 
-# Return to master
-cd "$PROJECT_DIR" && git checkout master 2>/dev/null
+# Return to master (skip for new projects)
+if [ "$IS_NEW_PROJECT" = false ]; then
+  cd "$PROJECT_DIR" && git checkout master 2>/dev/null
+fi
