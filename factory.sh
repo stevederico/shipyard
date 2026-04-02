@@ -82,11 +82,9 @@ fi
 log "Task: $TASK_NAME"
 log "Repo: ${TASK_REPO:-(new repo)}"
 
+DRY_RUN=false
 if [ "$1" = "--dry-run" ]; then
-  log "Dry run — stopping before execution"
-  log "Prompt preview:"
-  echo "$TASK_PROMPT" | head -5 | tee -a "$LOGFILE"
-  exit 0
+  DRY_RUN=true
 fi
 
 # ── 2/12 ROUTE ─────────────────────────────────────────────
@@ -103,9 +101,14 @@ if [ -n "$TASK_REPO" ]; then
       python3 -c "import json,sys; repos=json.loads(sys.stdin.read()); matches=[r for r in repos if r['name'].lower()=='$TASK_REPO'.lower()]; print(matches[0]['nameWithOwner'] if matches else '')" 2>/dev/null)
 
     if [ -n "$GH_REPO" ]; then
-      log "Found on GitHub: $GH_REPO — cloning"
-      gh repo clone "$GH_REPO" "$PROJECTS/$TASK_REPO" 2>&1 | tee -a "$LOGFILE"
-      REPO_DIR="$PROJECTS/$TASK_REPO"
+      if [ "$DRY_RUN" = true ]; then
+        log "Found on GitHub: $GH_REPO (would clone)"
+        REPO_DIR="$PROJECTS/$TASK_REPO"
+      else
+        log "Found on GitHub: $GH_REPO — cloning"
+        gh repo clone "$GH_REPO" "$PROJECTS/$TASK_REPO" 2>&1 | tee -a "$LOGFILE"
+        REPO_DIR="$PROJECTS/$TASK_REPO"
+      fi
     fi
   fi
 
@@ -118,10 +121,15 @@ else
   # No repo specified — create new
   REPO_NAME=$(echo "$TASK_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
   REPO_DIR="$PROJECTS/$REPO_NAME"
-  mkdir -p "$REPO_DIR"
-  cd "$REPO_DIR" && git init 2>&1 | tee -a "$LOGFILE"
-  IS_NEW_REPO=true
-  log "Created new repo: $REPO_NAME ($REPO_DIR)"
+  if [ "$DRY_RUN" = true ]; then
+    IS_NEW_REPO=true
+    log "Would create new repo: $REPO_NAME ($REPO_DIR)"
+  else
+    mkdir -p "$REPO_DIR"
+    cd "$REPO_DIR" && git init 2>&1 | tee -a "$LOGFILE"
+    IS_NEW_REPO=true
+    log "Created new repo: $REPO_NAME ($REPO_DIR)"
+  fi
 fi
 
 REPO_NAME=$(basename "$REPO_DIR")
@@ -129,7 +137,7 @@ log "Repo: $REPO_NAME ($REPO_DIR)"
 
 # ── 3/12 PULL ──────────────────────────────────────────────
 stage "PULL"
-cd "$REPO_DIR"
+cd "$REPO_DIR" 2>/dev/null
 if [ "$IS_NEW_REPO" = false ]; then
   HAS_REMOTE=$(git remote 2>/dev/null | head -1)
   if [ -n "$HAS_REMOTE" ]; then
@@ -140,7 +148,9 @@ if [ "$IS_NEW_REPO" = false ]; then
     fi
     BASE_BRANCH="${BASE_BRANCH:-main}"
     log "Base branch: $BASE_BRANCH"
-    git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
+    if [ "$DRY_RUN" = false ]; then
+      git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
+    fi
   else
     BASE_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
     log "No remote — skipping pull (branch: $BASE_BRANCH)"
@@ -153,10 +163,8 @@ fi
 # ── BRANCH ────────────────────────────────────────────────
 stage "BRANCH"
 BRANCH="factory/$TASK_NAME"
-if [ "$IS_NEW_REPO" = false ]; then
+if [ "$IS_NEW_REPO" = false ] && [ "$DRY_RUN" = false ]; then
   git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
-else
-  log "New repo — working on default branch"
 fi
 log "Branch: $BRANCH"
 
@@ -164,6 +172,23 @@ log "Branch: $BRANCH"
 PRE_VERSION=""
 if [ -f "$REPO_DIR/package.json" ]; then
   PRE_VERSION=$(python3 -c "import json; print(json.load(open('package.json')).get('version',''))" 2>/dev/null)
+fi
+
+# ── Dry run summary ───────────────────────────────────────
+if [ "$DRY_RUN" = true ]; then
+  echo "" | tee -a "$LOGFILE"
+  log "━━━ DRY RUN SUMMARY ━━━"
+  log "Task:       $TASK_NAME"
+  log "Repo:       ${TASK_REPO:-(new repo)} → $REPO_DIR"
+  log "New repo:   $IS_NEW_REPO"
+  log "Branch:     $BRANCH"
+  log "Base:       $BASE_BRANCH"
+  log "Standards:  $SHIPYARD/standards.md"
+  log "Workflow:   $SHIPYARD/workflow.md"
+  log ""
+  log "━━━ PROMPT ━━━"
+  echo "$TASK_PROMPT" | tee -a "$LOGFILE"
+  exit 0
 fi
 
 # ── CODE + TEST (Claude session) ──────────────────────────
