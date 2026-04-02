@@ -232,11 +232,38 @@ Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
 $(cat "$SHIPYARD/workflow.md")
 PROMPT_EOF
 
-# Use script to get unbuffered output to both terminal and log
-script -q "$LOGFILE.code" bash -c "claude -p \"\$(cat '$PROMPT_FILE')\" --dangerously-skip-permissions --verbose 2>&1"
+# Stream Claude output in real time via stream-json
+claude -p "$(cat "$PROMPT_FILE")" --dangerously-skip-permissions --verbose \
+  --output-format stream-json 2>/dev/null | \
+  python3 -uc "
+import sys, json
+seen = set()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    etype = event.get('type', '')
+    # Assistant text messages (deduplicate by uuid)
+    if etype == 'assistant':
+        msg = event.get('message', {})
+        uid = event.get('uuid', '')
+        if uid in seen:
+            continue
+        seen.add(uid)
+        for block in msg.get('content', []):
+            if block.get('type') == 'text':
+                print(block['text'], flush=True)
+    # Final result
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text:
+            print(text, flush=True)
+" 2>/dev/null | tee -a "$LOGFILE"
 rm -f "$PROMPT_FILE"
-cat "$LOGFILE.code" >> "$LOGFILE"
-rm -f "$LOGFILE.code"
 
 CODE_END=$(date +%s)
 CODE_ELAPSED=$(( CODE_END - CODE_START ))
