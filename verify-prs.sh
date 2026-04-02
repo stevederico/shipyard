@@ -45,12 +45,16 @@ PR_COUNT=$(echo "$PRS" | python3 -c "import json,sys; print(len(json.loads(sys.s
 echo "Found $PR_COUNT open PRs"
 echo ""
 
+# Write PR list to temp file to avoid stdin conflicts with claude
+PR_LIST=$(mktemp)
 echo "$PRS" | python3 -c "
 import json, sys
 prs = json.loads(sys.stdin.read())
 for pr in prs:
     print(f\"{pr['number']}|{pr['headRefName']}|{pr['title']}\")
-" | while IFS='|' read -r PR_NUM BRANCH TITLE; do
+" > "$PR_LIST"
+
+while IFS='|' read -r PR_NUM BRANCH TITLE; do
   echo "━━━ PR #$PR_NUM: $TITLE ━━━"
 
   SCREENSHOT_DIR="$LOGDIR/screenshots/pr-$PR_NUM"
@@ -153,7 +157,8 @@ Steps:
   rm -rf "$WORKTREE" 2>/dev/null
   git worktree prune 2>/dev/null
   echo ""
-done
+done < "$PR_LIST"
+rm -f "$PR_LIST"
 
 cd "$REPO_DIR"
 git checkout master 2>/dev/null
