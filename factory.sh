@@ -386,11 +386,19 @@ Steps:
 6. Print VERIFY_DONE when finished
 VERIFY_EOF
 
+      # Run verify session with progress feedback
+      log "Screenshotting changes (max 120s)..."
       claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
         --output-format stream-json 2>/dev/null | \
         python3 -uc "
-import sys, json
+import sys, json, time, signal
+
+# Auto-kill after 120s
+signal.alarm(120)
+signal.signal(signal.SIGALRM, lambda *_: (print('[VERIFY] timed out after 120s', flush=True), sys.exit(0)))
+
 seen = set()
+last_log = time.time()
 for line in sys.stdin:
     line = line.strip()
     if not line:
@@ -408,12 +416,19 @@ for line in sys.stdin:
         for block in event.get('message', {}).get('content', []):
             if block.get('type') == 'text':
                 print(block['text'], flush=True)
+                last_log = time.time()
     elif etype == 'result':
         text = event.get('result', '')
         if text:
             print(text, flush=True)
+    # Heartbeat every 15s of silence
+    now = time.time()
+    if now - last_log > 15:
+        print('[VERIFY] still working...', flush=True)
+        last_log = now
 " 2>/dev/null | tee -a "$LOGFILE"
       rm -f "$VERIFY_PROMPT_FILE"
+      log "VERIFY completed"
     else
       log "Dev server did not start within 30s"
     fi
