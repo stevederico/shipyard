@@ -8,7 +8,6 @@ TASK_DIR="$SHIPYARD/tasks"
 DONE_DIR="$TASK_DIR/done"
 PROJECTS="${SHIPYARD_PROJECTS:-$(dirname "$SHIPYARD")}"
 LOGDIR="$SHIPYARD/logs"
-DATE=$(date +"%m/%d/%y")
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
 mkdir -p "$LOGDIR" "$DONE_DIR"
@@ -26,11 +25,16 @@ if [ "$1" = "--issues" ]; then
   fi
 
   log "Syncing issues from $REPO (label: shipyard)"
-  PROJECT_NAME=$(echo "$REPO" | cut -d/ -f2)
+  export PROJECT_NAME=$(echo "$REPO" | cut -d/ -f2)
+  export REPO TASK_DIR
 
   gh issue list --repo "$REPO" --label "shipyard" --state open --json number,title,body --limit 50 2>/dev/null | \
     python3 -c "
-import json, sys, re
+import json, sys, re, os
+
+task_dir = os.environ['TASK_DIR']
+project = os.environ['PROJECT_NAME']
+repo = os.environ['REPO']
 
 issues = json.loads(sys.stdin.read())
 for issue in issues:
@@ -38,10 +42,10 @@ for issue in issues:
     title = issue['title']
     body = issue.get('body', '') or ''
     slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
-    filename = f'tasks/{num:03d}-{slug}.md'
+    filename = os.path.join(task_dir, f'{num:03d}-{slug}.md')
 
     with open(filename, 'w') as f:
-        f.write(f'---\nproject: $PROJECT_NAME\nissue: $REPO#{num}\n---\n\n# {title}\n\n{body}\n')
+        f.write(f'---\nproject: {project}\nissue: {repo}#{num}\n---\n\n# {title}\n\n{body}\n')
 
     print(f'  Created {filename}')
 
@@ -69,13 +73,8 @@ TASK_BODY=$(cat "$TASK_FILE")
 TASK_PROJECT=""
 IS_NEW_PROJECT=false
 if echo "$TASK_BODY" | head -1 | grep -q '^---$'; then
-  TASK_PROJECT=$(echo "$TASK_BODY" | sed -n '/^---$/,/^---$/p' | grep '^project:' | sed 's/^project: *//')
-  # Strip frontmatter from body to get the prompt
-  TASK_PROMPT=$(echo "$TASK_BODY" | sed '1,/^---$/!d; 1,/^---$/d' | sed '1,/^---$/d')
-  # If sed didn't strip cleanly, try awk
-  if [ -z "$TASK_PROMPT" ]; then
-    TASK_PROMPT=$(echo "$TASK_BODY" | awk 'BEGIN{n=0} /^---$/{n++;next} n>=2{print}')
-  fi
+  TASK_PROJECT=$(echo "$TASK_BODY" | awk '/^---$/{n++;next} n==1 && /^project:/{gsub(/^project: */, ""); print}')
+  TASK_PROMPT=$(echo "$TASK_BODY" | awk 'BEGIN{n=0} /^---$/{n++;next} n>=2{print}')
 else
   TASK_PROMPT="$TASK_BODY"
 fi
@@ -120,14 +119,6 @@ if [ "$IS_NEW_PROJECT" = false ]; then
   git pull origin master 2>&1 | tee -a "$LOGFILE"
 else
   log "New project — skipping pull"
-fi
-
-# ── 4/12 PLAN ──────────────────────────────────────────────
-stage "4/12 PLAN"
-if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
-  log "Project CLAUDE.md found — will be loaded from working directory"
-else
-  log "No project CLAUDE.md"
 fi
 
 # ── 5/12 BRANCH ───────────────────────────────────────────
@@ -193,14 +184,14 @@ Steps:
 stage "8/12 LINT"
 LINT_PASS=true
 
-# Check: no .env or secrets staged
-if git diff --cached --name-only 2>/dev/null | grep -qE '\.env|\.pem|\.key|credentials|secrets|tokens'; then
-  log "FAIL: secrets or .env in staged files"
+# Check: no .env or secrets committed on branch
+if git diff "master...$BRANCH" --name-only 2>/dev/null | grep -qE '\.env|\.pem|\.key|credentials|secrets|tokens'; then
+  log "FAIL: secrets or .env in committed files"
   LINT_PASS=false
 fi
 
-# Check: CHANGELOG.md was modified
-if ! git diff "master...$BRANCH" --name-only 2>/dev/null | grep -q "CHANGELOG.md"; then
+# Check: changelog was modified
+if ! git diff "master...$BRANCH" --name-only 2>/dev/null | grep -qi "changelog"; then
   log "WARN: CHANGELOG.md not updated"
 fi
 
