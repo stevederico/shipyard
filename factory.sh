@@ -109,6 +109,9 @@ if [ "$1" = "--verify" ]; then
   echo ""
 
   cd "$REPO_DIR"
+  # Clean up any stale worktrees from previous runs
+  rm -rf .worktrees 2>/dev/null
+  git worktree prune 2>/dev/null
   BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
   if [ -z "$BASE_BRANCH" ]; then
     BASE_BRANCH=$(git branch -r 2>/dev/null | grep -oE 'origin/(main|master)' | head -1 | sed 's@origin/@@')
@@ -159,6 +162,8 @@ for pr in prs:
 
     # Checkout branch directly (no worktree — need real DB, .env, etc.)
     cd "$REPO_DIR"
+    rm -rf .worktrees 2>/dev/null
+    git worktree prune 2>/dev/null
     git checkout "$BRANCH" 2>/dev/null
     if [ $? -ne 0 ]; then
       echo "  Could not checkout $BRANCH — skipping"
