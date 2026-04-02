@@ -59,6 +59,17 @@ Add a dark mode toggle to the settings page. Should respect system
 preference by default. Use the existing ThemeProvider context.
 ```
 
+**With screenshot verification** — add `url:` to take a screenshot after shipping and attach it to the PR:
+
+```markdown
+---
+repo: my-app
+url: http://localhost:5173
+---
+
+Add a dark mode toggle to the settings page.
+```
+
 **New repo** — omit `repo:` and Shipyard creates one (named from the filename):
 
 ```markdown
@@ -122,6 +133,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | LINT | deterministic | Shell checks: no secrets, test failures |
 | FIX | agentic | Claude fixes lint failures (max 3 attempts) |
 | SHIP | deterministic | Confirm PR was opened |
+| VERIFY | deterministic | Screenshot URL via agent-browser, attach to PR |
 | UPDATE | deterministic | Move task file to `tasks/done/`, close GitHub issue |
 | DONE | deterministic | Report result, return to default branch |
 
@@ -138,3 +150,4 @@ Edit either file to match your preferences. The factory auto-detects your defaul
 
 - [Claude Code](https://claude.ai/claude-code) with `--dangerously-skip-permissions`
 - `gh` CLI (authenticated)
+- `agent-browser` (optional, for screenshot verification)

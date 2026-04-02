@@ -1,5 +1,7 @@
 # Changelog
 
+0.20.0
+  Screenshot verification
 0.19.0
   Rename project to repo
   GitHub clone fallback

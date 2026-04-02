@@ -81,11 +81,13 @@ fi
 TASK_NAME=$(basename "$TASK_FILE" .md)
 TASK_BODY=$(cat "$TASK_FILE")
 
-# Parse optional frontmatter for repo field
+# Parse optional frontmatter for repo and url fields
 TASK_REPO=""
+TASK_URL=""
 IS_NEW_REPO=false
 if echo "$TASK_BODY" | head -1 | grep -q '^---$'; then
   TASK_REPO=$(echo "$TASK_BODY" | awk '/^---$/{n++;next} n==1 && /^repo:/{gsub(/^repo: */, ""); print}')
+  TASK_URL=$(echo "$TASK_BODY" | awk '/^---$/{n++;next} n==1 && /^url:/{gsub(/^url: */, ""); print}')
   TASK_PROMPT=$(echo "$TASK_BODY" | awk 'BEGIN{n=0} /^---$/{n++;next} n>=2{print}')
 else
   TASK_PROMPT="$TASK_BODY"
@@ -196,6 +198,7 @@ if [ "$DRY_RUN" = true ]; then
   log "New repo:   $IS_NEW_REPO"
   log "Branch:     $BRANCH"
   log "Base:       $BASE_BRANCH"
+  log "URL:        ${TASK_URL:-(none, skip VERIFY)}"
   log "Standards:  $SHIPYARD/standards.md"
   log "Workflow:   $SHIPYARD/workflow.md"
   log ""
@@ -319,6 +322,50 @@ if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "PR shipped on branch $BRANCH"
 else
   log "No PR — Claude reported failure"
+fi
+
+# ── VERIFY (screenshot and attach to PR) ─────────────────
+if [ -n "$TASK_URL" ] && grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && command -v agent-browser &>/dev/null; then
+  stage "VERIFY"
+  PR_NUM=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1 | grep -o '[0-9]*$')
+  SCREENSHOT_DIR="$LOGDIR/screenshots"
+  mkdir -p "$SCREENSHOT_DIR"
+  SCREENSHOT="$SCREENSHOT_DIR/${TASK_NAME}.png"
+
+  log "Taking screenshot of $TASK_URL"
+  agent-browser open "$TASK_URL" 2>/dev/null
+  agent-browser wait --load networkidle 2>/dev/null
+  agent-browser screenshot "$SCREENSHOT" 2>/dev/null
+
+  if [ -f "$SCREENSHOT" ] && [ -n "$PR_NUM" ]; then
+    # Upload screenshot to GitHub PR comment
+    # GitHub accepts image uploads via the camo/upload endpoint
+    OWNER=$(echo "$REPO_NAME" | cut -d/ -f1)
+    GH_OWNER=$(gh api user --jq '.login' 2>/dev/null)
+    UPLOAD_URL=$(gh api --method POST "repos/${GH_OWNER}/${REPO_NAME}/issues/${PR_NUM}/comments" \
+      --field body="uploading" --jq '.id' 2>/dev/null)
+
+    # Simpler approach: use gh to comment with a local image reference
+    # GitHub doesn't support direct image upload via CLI, so we base64 embed or link
+    log "Screenshot saved: $SCREENSHOT"
+    gh pr comment "$PR_NUM" --repo "${GH_OWNER}/${REPO_NAME}" \
+      --body "## Screenshot
+![screenshot](https://github.com/${GH_OWNER}/${REPO_NAME}/blob/${BRANCH}/screenshot.png?raw=true)
+
+Taken from: $TASK_URL" 2>/dev/null
+
+    # Also commit the screenshot to the branch for the PR reference
+    cp "$SCREENSHOT" "$REPO_DIR/screenshot.png"
+    cd "$REPO_DIR"
+    git add screenshot.png
+    git commit -m "Add verification screenshot" 2>/dev/null
+    git push origin "$BRANCH" 2>/dev/null
+    log "Screenshot attached to PR #$PR_NUM"
+  else
+    log "Screenshot failed or no PR number found"
+  fi
+elif [ -n "$TASK_URL" ] && ! command -v agent-browser &>/dev/null; then
+  log "Skipping VERIFY — agent-browser not installed"
 fi
 
 # ── UPDATE ────────────────────────────────────────────────
