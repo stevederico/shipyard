@@ -5,20 +5,22 @@ Autonomous code factory. Reads task files from `tasks/`, ships them as PRs.
 ## How It Works
 
 1. Picks the next task file from `tasks/`
-2. Routes to the project directory (or creates a new one)
+2. Routes to the repo (local, GitHub, or creates a new one)
 3. Claude codes it, runs tests, commits, opens a PR
 4. Moves the task file to `tasks/done/`
 
 ## Setup
 
-Shipyard expects your projects to live in the parent directory:
+Shipyard expects your repos to live in the parent directory:
 
 ```
 projects/
   shipyard/        # this repo
-  my-app/          # a project shipyard can work on
-  another-app/     # another project
+  my-app/          # a repo shipyard can work on
+  another-app/     # another repo
 ```
+
+If a repo isn't local, Shipyard searches your GitHub account and clones it automatically.
 
 Or set `SHIPYARD_PROJECTS` to point elsewhere:
 
@@ -38,18 +40,18 @@ bash factory.sh --issues owner/repo    # pull GitHub issues into tasks/
 
 Each task is a markdown file in `tasks/`. The filename becomes the task name. The file body is the full prompt sent to Claude — write as much or as little as you need.
 
-**Existing project** — add `project:` in frontmatter:
+**Existing repo** — add `repo:` in frontmatter:
 
 ```markdown
 ---
-project: my-app
+repo: my-app
 ---
 
 Add a dark mode toggle to the settings page. Should respect system
 preference by default. Use the existing ThemeProvider context.
 ```
 
-**New project** — omit `project:` and Shipyard creates one (named from the filename):
+**New repo** — omit `repo:` and Shipyard creates one (named from the filename):
 
 ```markdown
 Build a weather dashboard that shows 5-day forecast.
@@ -89,7 +91,7 @@ crontab -e
 Based on patterns from Ramp Inspect and Stripe Minions:
 
 1. **Task queue** — `tasks/` folder, one markdown file per task
-2. **Task routing** — maps to existing project or creates a new one
+2. **Task routing** — finds repo locally, clones from GitHub, or creates new
 3. **Branch isolation** — agents work on feature branches, never the default branch
 4. **Autonomous coding** — Claude runs non-interactively with full permissions
 5. **Test verification** — run tests, fail fast if broken
@@ -104,7 +106,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | Stage | Type | What |
 |-------|------|------|
 | PICK | deterministic | Take first `.md` file from `tasks/` |
-| ROUTE | deterministic | Find project directory or create new one |
+| ROUTE | deterministic | Find repo locally, clone from GitHub, or create new |
 | PULL | deterministic | Detect default branch, git pull |
 | BRANCH | deterministic | Create feature branch, save pre-state |
 | CODE | agentic | Claude implements (standards.md + workflow.md) |

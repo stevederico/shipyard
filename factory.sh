@@ -45,7 +45,7 @@ for issue in issues:
     filename = os.path.join(task_dir, f'{num:03d}-{slug}.md')
 
     with open(filename, 'w') as f:
-        f.write(f'---\nproject: {project}\nissue: {repo}#{num}\n---\n\n# {title}\n\n{body}\n')
+        f.write(f'---\nrepo: {project}\nissue: {repo}#{num}\n---\n\n# {title}\n\n{body}\n')
 
     print(f'  Created {filename}')
 
@@ -56,7 +56,7 @@ if not issues:
 fi
 
 # ── 1/12 PICK ──────────────────────────────────────────────
-stage "1/12 PICK"
+stage "PICK"
 log "Reading tasks from $TASK_DIR"
 
 TASK_FILE=$(find "$TASK_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort | head -1)
@@ -69,18 +69,18 @@ fi
 TASK_NAME=$(basename "$TASK_FILE" .md)
 TASK_BODY=$(cat "$TASK_FILE")
 
-# Parse optional frontmatter for project field
-TASK_PROJECT=""
-IS_NEW_PROJECT=false
+# Parse optional frontmatter for repo field
+TASK_REPO=""
+IS_NEW_REPO=false
 if echo "$TASK_BODY" | head -1 | grep -q '^---$'; then
-  TASK_PROJECT=$(echo "$TASK_BODY" | awk '/^---$/{n++;next} n==1 && /^project:/{gsub(/^project: */, ""); print}')
+  TASK_REPO=$(echo "$TASK_BODY" | awk '/^---$/{n++;next} n==1 && /^repo:/{gsub(/^repo: */, ""); print}')
   TASK_PROMPT=$(echo "$TASK_BODY" | awk 'BEGIN{n=0} /^---$/{n++;next} n>=2{print}')
 else
   TASK_PROMPT="$TASK_BODY"
 fi
 
 log "Task: $TASK_NAME"
-log "Project: ${TASK_PROJECT:-(new project)}"
+log "Repo: ${TASK_REPO:-(new repo)}"
 
 if [ "$1" = "--dry-run" ]; then
   log "Dry run — stopping before execution"
@@ -90,32 +90,47 @@ if [ "$1" = "--dry-run" ]; then
 fi
 
 # ── 2/12 ROUTE ─────────────────────────────────────────────
-stage "2/12 ROUTE"
+stage "ROUTE"
 
-if [ -n "$TASK_PROJECT" ]; then
-  PROJECT_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_PROJECT" -type d 2>/dev/null | head -1)
-  if [ -z "$PROJECT_DIR" ]; then
-    log "Could not find project: $TASK_PROJECT"
-    log "Available projects: $(ls "$PROJECTS" | head -20)"
+if [ -n "$TASK_REPO" ]; then
+  # 1. Check local directory
+  REPO_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_REPO" -type d 2>/dev/null | head -1)
+
+  # 2. Not local — try cloning from GitHub
+  if [ -z "$REPO_DIR" ]; then
+    log "Not found locally, searching GitHub..."
+    GH_REPO=$(gh repo list --limit 500 --json name,nameWithOwner 2>/dev/null | \
+      python3 -c "import json,sys; repos=json.loads(sys.stdin.read()); matches=[r for r in repos if r['name'].lower()=='$TASK_REPO'.lower()]; print(matches[0]['nameWithOwner'] if matches else '')" 2>/dev/null)
+
+    if [ -n "$GH_REPO" ]; then
+      log "Found on GitHub: $GH_REPO — cloning"
+      gh repo clone "$GH_REPO" "$PROJECTS/$TASK_REPO" 2>&1 | tee -a "$LOGFILE"
+      REPO_DIR="$PROJECTS/$TASK_REPO"
+    fi
+  fi
+
+  # 3. Not local, not on GitHub — error
+  if [ -z "$REPO_DIR" ]; then
+    log "Could not find repo '$TASK_REPO' locally or on GitHub"
     exit 1
   fi
 else
-  # Slugify task name into a project name
-  PROJECT_NAME=$(echo "$TASK_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
-  PROJECT_DIR="$PROJECTS/$PROJECT_NAME"
-  mkdir -p "$PROJECT_DIR"
-  cd "$PROJECT_DIR" && git init 2>&1 | tee -a "$LOGFILE"
-  IS_NEW_PROJECT=true
-  log "Created new project: $PROJECT_NAME ($PROJECT_DIR)"
+  # No repo specified — create new
+  REPO_NAME=$(echo "$TASK_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  REPO_DIR="$PROJECTS/$REPO_NAME"
+  mkdir -p "$REPO_DIR"
+  cd "$REPO_DIR" && git init 2>&1 | tee -a "$LOGFILE"
+  IS_NEW_REPO=true
+  log "Created new repo: $REPO_NAME ($REPO_DIR)"
 fi
 
-PROJECT_NAME=$(basename "$PROJECT_DIR")
-log "Project: $PROJECT_NAME ($PROJECT_DIR)"
+REPO_NAME=$(basename "$REPO_DIR")
+log "Repo: $REPO_NAME ($REPO_DIR)"
 
 # ── 3/12 PULL ──────────────────────────────────────────────
-stage "3/12 PULL"
-cd "$PROJECT_DIR"
-if [ "$IS_NEW_PROJECT" = false ]; then
+stage "PULL"
+cd "$REPO_DIR"
+if [ "$IS_NEW_REPO" = false ]; then
   # Detect default branch
   BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
   if [ -z "$BASE_BRANCH" ]; then
@@ -126,40 +141,40 @@ if [ "$IS_NEW_PROJECT" = false ]; then
   git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
 else
   BASE_BRANCH="main"
-  log "New project — skipping pull"
+  log "New repo — skipping pull"
 fi
 
-# ── 5/12 BRANCH ───────────────────────────────────────────
-stage "5/12 BRANCH"
+# ── BRANCH ────────────────────────────────────────────────
+stage "BRANCH"
 BRANCH="factory/$TASK_NAME"
-if [ "$IS_NEW_PROJECT" = false ]; then
+if [ "$IS_NEW_REPO" = false ]; then
   git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
 else
-  log "New project — working on default branch"
+  log "New repo — working on default branch"
 fi
 log "Branch: $BRANCH"
 
 # Save pre-code state for lint checks
 PRE_VERSION=""
-if [ -f "$PROJECT_DIR/package.json" ]; then
+if [ -f "$REPO_DIR/package.json" ]; then
   PRE_VERSION=$(python3 -c "import json; print(json.load(open('package.json')).get('version',''))" 2>/dev/null)
 fi
 
-# ── 6/12 CODE + 7/12 TEST (Claude session) ────────────────
-stage "6/12 CODE (Claude session)"
+# ── CODE + TEST (Claude session) ──────────────────────────
+stage "CODE"
 claude -p "
 You are running in factory mode. Complete this task autonomously.
 
-PROJECT: $PROJECT_NAME
-NEW_PROJECT: $IS_NEW_PROJECT
+REPO: $REPO_NAME
+NEW_REPO: $IS_NEW_REPO
 
 --- TASK ---
 $TASK_PROMPT
 --- END TASK ---
 
 Print a stage header before each step:
-  [STAGE 6/12: CODE] what you are building
-  [STAGE 7/12: TEST] running tests
+  [CODE] what you are building
+  [TEST] running tests
 
 Coding standards (enforce these regardless of project CLAUDE.md):
 $(cat "$SHIPYARD/standards.md")
@@ -168,8 +183,8 @@ Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
 $(cat "$SHIPYARD/workflow.md")
 " --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
-# ── 8/12 LINT (deterministic checks) ──────────────────────
-stage "8/12 LINT"
+# ── LINT (deterministic checks) ───────────────────────────
+stage "LINT"
 LINT_PASS=true
 
 # Check: no .env or secrets committed on branch
@@ -184,7 +199,7 @@ if ! git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qi "chang
 fi
 
 # Check: package.json version bumped
-if [ -f "$PROJECT_DIR/package.json" ] && [ -n "$PRE_VERSION" ]; then
+if [ -f "$REPO_DIR/package.json" ] && [ -n "$PRE_VERSION" ]; then
   POST_VERSION=$(python3 -c "import json; print(json.load(open('package.json')).get('version',''))" 2>/dev/null)
   if [ "$PRE_VERSION" = "$POST_VERSION" ]; then
     log "WARN: package.json version not bumped ($PRE_VERSION)"
@@ -205,23 +220,23 @@ else
   log "Lint checks failed"
 fi
 
-# ── 9/12 FIX (if lint failed, Claude fixes — max 3 attempts) ──
+# ── FIX (if lint failed, Claude fixes — max 3 attempts) ──
 if [ "$LINT_PASS" = false ]; then
-  stage "9/12 FIX"
+  stage "FIX"
   log "Skipped — lint failures were non-blocking this run"
   # TODO: re-run Claude to fix lint failures
 fi
 
-# ── 10/12 SHIP ─────────────────────────────────────────────
-stage "10/12 SHIP"
+# ── SHIP ──────────────────────────────────────────────────
+stage "SHIP"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "PR shipped on branch $BRANCH"
 else
   log "No PR — Claude reported failure"
 fi
 
-# ── 11/12 UPDATE ───────────────────────────────────────────
-stage "11/12 UPDATE"
+# ── UPDATE ────────────────────────────────────────────────
+stage "UPDATE"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   # If task came from a GitHub issue, comment the PR link and close it
   ISSUE_REF=$(echo "$TASK_BODY" | sed -n '/^---$/,/^---$/p' | grep '^issue:' | sed 's/^issue: *//')
@@ -243,15 +258,15 @@ else
   log "Skipped — task failed"
 fi
 
-# ── 12/12 DONE ─────────────────────────────────────────────
-stage "12/12 DONE"
+# ── DONE ──────────────────────────────────────────────────
+stage "DONE"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "Factory run successful"
 else
   log "Factory run failed — check log: $LOGFILE"
 fi
 
-# Return to master (skip for new projects)
-if [ "$IS_NEW_PROJECT" = false ]; then
-  cd "$PROJECT_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
+# Return to default branch (skip for new repos)
+if [ "$IS_NEW_REPO" = false ]; then
+  cd "$REPO_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
 fi
