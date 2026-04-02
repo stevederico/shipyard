@@ -202,8 +202,39 @@ Steps:
 2. Take 1-2 screenshots of the changes: agent-browser screenshot $SCREENSHOT_DIR/description.png
 3. Print VERIFY_DONE when finished"
 
-    echo "  Verifying..."
-    echo "$VERIFY_PROMPT" | claude -p --dangerously-skip-permissions 2>/dev/null | tail -5
+    echo "  Verifying PR #$PR_NUM..."
+    VERIFY_PROMPT_FILE=$(mktemp)
+    echo "$VERIFY_PROMPT" > "$VERIFY_PROMPT_FILE"
+    claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
+      --output-format stream-json 2>/dev/null | \
+      python3 -uc "
+import sys, json, time, signal
+signal.alarm(120)
+signal.signal(signal.SIGALRM, lambda *_: (print('  timed out', flush=True), sys.exit(0)))
+seen = set()
+last_log = time.time()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try: event = json.loads(line)
+    except: continue
+    etype = event.get('type', '')
+    if etype == 'assistant':
+        uid = event.get('uuid', '')
+        if uid in seen: continue
+        seen.add(uid)
+        for block in event.get('message', {}).get('content', []):
+            if block.get('type') == 'text':
+                print('  ' + block['text'], flush=True)
+                last_log = time.time()
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text: print('  ' + text, flush=True)
+    if time.time() - last_log > 15:
+        print('  still working...', flush=True)
+        last_log = time.time()
+" 2>/dev/null
+    rm -f "$VERIFY_PROMPT_FILE"
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
     lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
