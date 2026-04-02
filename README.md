@@ -116,6 +116,10 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | 11/12 UPDATE | deterministic | Move task file to `tasks/done/` |
 | 12/12 DONE | deterministic | Report result, return to master |
 
+## Coding Standards
+
+`standards.md` defines the baseline rules injected into every Claude session (error handling, accessibility, naming, etc.). Edit it to match your preferences.
+
 ## Requirements
 
 - [Claude Code](https://claude.ai/claude-code) with `--dangerously-skip-permissions`
