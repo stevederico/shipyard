@@ -1,5 +1,10 @@
 # Changelog
 
+0.22.0
+  Open source prep
+  Add MIT LICENSE
+  Add Why Shipyard section
+  Fix README accuracy
 0.21.0
   Parallel execution
   Self-verification loop

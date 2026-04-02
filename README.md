@@ -1,5 +1,8 @@
 # Shipyard
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/stevederico/shipyard?style=social)](https://github.com/stevederico/shipyard/stargazers)
+
 Autonomous code factory. Reads task files from `tasks/`, ships them as PRs.
 
 ## How It Works
@@ -31,10 +34,12 @@ export SHIPYARD_PROJECTS="$HOME/code"
 ## Usage
 
 ```bash
-bash factory.sh                        # run one task
-bash factory.sh --dry-run              # preview what it would pick
-bash factory.sh --parallel 3           # run 3 tasks in parallel
-bash factory.sh --issues owner/repo    # pull GitHub issues into tasks/
+bash factory.sh                              # run one task
+bash factory.sh --dry-run                    # preview what it would pick
+bash factory.sh --parallel 3                 # run 3 tasks in parallel
+bash factory.sh --issues owner/repo          # pull GitHub issues into tasks/
+bash factory.sh --verify owner/repo          # re-verify all open PRs
+bash factory.sh --verify owner/repo 42       # re-verify a specific PR
 ```
 
 Run in its own terminal — not inside another tool. Monitor progress in a second terminal:
@@ -126,7 +131,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | CODE | agentic | Claude implements (standards.md + workflow.md) |
 | TEST | agentic | Claude runs tests (inside same session) |
 | LINT | deterministic | Shell checks: no secrets, test failures |
-| FIX | agentic | Claude fixes lint failures (max 3 attempts) |
+| FIX | agentic | Claude fixes lint failures (max 2 attempts) |
 | SHIP | deterministic | Confirm PR was opened |
 | VERIFY | agentic | Claude reads diff, screenshots affected pages via agent-browser |
 | UPDATE | deterministic | Move task file to `tasks/done/`, close GitHub issue |
@@ -146,3 +151,39 @@ Edit either file to match your preferences. The factory auto-detects your defaul
 - [Claude Code](https://claude.ai/claude-code) with `--dangerously-skip-permissions`
 - `gh` CLI (authenticated)
 - `agent-browser` (optional, for screenshot verification)
+
+## Why Shipyard
+
+Shipyard does the same thing as GitHub Copilot Coding Agent and Claude for GitHub — task in, PR out, automated. The difference is it's a shell script you own.
+
+### What Shipyard has that they don't
+
+- **Task queue with priority** — file-based, numbered for order, not one-off prompts
+- **Configurable standards and workflow** — edit `standards.md` and `workflow.md` to control exactly what the agent does
+- **Screenshot verification** — starts the dev server, reads the diff, screenshots the actual pages that changed
+- **Runs locally** — no data leaves your machine except API calls to Claude
+- **GitHub issues integration** — pull labeled issues into the queue, close them on completion
+- **No vendor lock-in** — swap Claude for another model, change the pipeline, fork it
+
+### What they have that Shipyard doesn't
+
+- Hosted infrastructure (no local machine needed)
+- Web UI
+- No setup
+
+### Who is Shipyard for
+
+Developers who want to own their code factory. Same idea as self-hosting vs SaaS — you trade convenience for control.
+
+## Contributing
+
+```bash
+git clone https://github.com/stevederico/shipyard
+cd shipyard
+```
+
+Edit `factory.sh`, `standards.md`, or `workflow.md`. Open a PR.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
