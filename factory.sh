@@ -13,8 +13,8 @@ TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 mkdir -p "$LOGDIR" "$DONE_DIR"
 LOGFILE="$LOGDIR/$TIMESTAMP.log"
 
-log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
-stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
+log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
+stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
 
 # ── Ctrl+C cleanup ────────────────────────────────────────
 cleanup() {
