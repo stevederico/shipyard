@@ -44,7 +44,7 @@ cleanup() {
 }
 trap cleanup INT
 
-# ── PARALLEL: spawn N workers with dashboard ──────────────
+# ── PARALLEL: spawn N workers ─────────────────────────────
 if [ "$1" = "--parallel" ]; then
   WORKERS="${2:-3}"
   rm -f "$STATUS_DIR"/worker-* 2>/dev/null
@@ -54,46 +54,21 @@ if [ "$1" = "--parallel" ]; then
 
   PIDS=""
   for i in $(seq 1 "$WORKERS"); do
-    SHIPYARD_WORKER_ID="$i" bash "$0" > "$LOGDIR/$TIMESTAMP-w$i-out.log" 2>&1 &
+    SHIPYARD_WORKER_ID="$i" bash "$0" &
     PIDS="$PIDS $!"
-    echo "  Worker $i started (PID $!)"
     sleep 1
   done
   echo ""
 
-  # Dashboard loop — poll status files every 3s
-  ALL_DONE=false
-  while [ "$ALL_DONE" = false ]; do
-    sleep 3
-    ALL_DONE=true
-
-    # Clear and redraw
-    printf "\033[2K\r"
-    echo "━━━ DASHBOARD ━━━"
-    for i in $(seq 1 "$WORKERS"); do
-      STATUS="waiting..."
-      if [ -f "$STATUS_DIR/worker-$i" ]; then
-        STATUS=$(cat "$STATUS_DIR/worker-$i")
-      fi
-      echo "  W$i: $STATUS"
-    done
-    echo ""
-
-    # Check if any workers still running
-    for pid in $PIDS; do
-      if kill -0 "$pid" 2>/dev/null; then
-        ALL_DONE=false
-      fi
-    done
-  done
-
-  # Final summary
+  # Wait for all workers (output streams live with [WN] prefix)
   FAILED=0
   for pid in $PIDS; do
     wait "$pid" || FAILED=$((FAILED + 1))
   done
 
-  echo "━━━ COMPLETE ━━━"
+  # Final summary
+  echo ""
+  echo "━━━ SUMMARY ━━━"
   for i in $(seq 1 "$WORKERS"); do
     STATUS="unknown"
     if [ -f "$STATUS_DIR/worker-$i" ]; then
@@ -102,7 +77,6 @@ if [ "$1" = "--parallel" ]; then
     echo "  W$i: $STATUS"
   done
   echo ""
-  echo "Logs: $LOGDIR/$TIMESTAMP-w*"
   rm -f "$STATUS_DIR"/worker-* 2>/dev/null
   exit $FAILED
 fi
