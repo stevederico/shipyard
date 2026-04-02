@@ -96,8 +96,8 @@ if [ -n "$TASK_REPO" ]; then
   # 1. Check local directory
   REPO_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_REPO" -type d 2>/dev/null | head -1)
 
-  # 2. Not local — try cloning from GitHub
-  if [ -z "$REPO_DIR" ]; then
+  # 2. Not local — try cloning from GitHub (if gh is available)
+  if [ -z "$REPO_DIR" ] && command -v gh &>/dev/null; then
     log "Not found locally, searching GitHub..."
     GH_REPO=$(gh repo list --limit 500 --json name,nameWithOwner 2>/dev/null | \
       python3 -c "import json,sys; repos=json.loads(sys.stdin.read()); matches=[r for r in repos if r['name'].lower()=='$TASK_REPO'.lower()]; print(matches[0]['nameWithOwner'] if matches else '')" 2>/dev/null)
@@ -109,7 +109,7 @@ if [ -n "$TASK_REPO" ]; then
     fi
   fi
 
-  # 3. Not local, not on GitHub — error
+  # 3. Not found anywhere — error
   if [ -z "$REPO_DIR" ]; then
     log "Could not find repo '$TASK_REPO' locally or on GitHub"
     exit 1
@@ -131,14 +131,20 @@ log "Repo: $REPO_NAME ($REPO_DIR)"
 stage "PULL"
 cd "$REPO_DIR"
 if [ "$IS_NEW_REPO" = false ]; then
-  # Detect default branch
-  BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-  if [ -z "$BASE_BRANCH" ]; then
-    BASE_BRANCH=$(git branch -r 2>/dev/null | grep -oE 'origin/(main|master)' | head -1 | sed 's@origin/@@')
+  HAS_REMOTE=$(git remote 2>/dev/null | head -1)
+  if [ -n "$HAS_REMOTE" ]; then
+    # Detect default branch
+    BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    if [ -z "$BASE_BRANCH" ]; then
+      BASE_BRANCH=$(git branch -r 2>/dev/null | grep -oE 'origin/(main|master)' | head -1 | sed 's@origin/@@')
+    fi
+    BASE_BRANCH="${BASE_BRANCH:-main}"
+    log "Base branch: $BASE_BRANCH"
+    git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
+  else
+    BASE_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
+    log "No remote — skipping pull (branch: $BASE_BRANCH)"
   fi
-  BASE_BRANCH="${BASE_BRANCH:-main}"
-  log "Base branch: $BASE_BRANCH"
-  git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
 else
   BASE_BRANCH="main"
   log "New repo — skipping pull"
