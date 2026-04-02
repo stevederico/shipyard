@@ -322,13 +322,12 @@ else
   log "No PR — Claude reported failure"
 fi
 
-# ── VERIFY (screenshot and attach to PR) ─────────────────
+# ── VERIFY (targeted screenshots of changes) ─────────────
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && command -v agent-browser &>/dev/null; then
   stage "VERIFY"
   PR_NUM=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1 | grep -o '[0-9]*$')
-  SCREENSHOT_DIR="$LOGDIR/screenshots"
+  SCREENSHOT_DIR="$LOGDIR/screenshots/$TASK_NAME"
   mkdir -p "$SCREENSHOT_DIR"
-  SCREENSHOT="$SCREENSHOT_DIR/${TASK_NAME}.png"
 
   # Detect dev server command from package.json
   DEV_CMD=""
@@ -362,10 +361,59 @@ for cmd in ['dev', 'start', 'preview']:
     rm -f "$DEV_LOG"
 
     if [ -n "$DEV_URL" ]; then
-      log "Dev server ready at $DEV_URL"
-      agent-browser open "$DEV_URL" 2>/dev/null
-      agent-browser wait --load networkidle 2>/dev/null
-      agent-browser screenshot "$SCREENSHOT" 2>/dev/null
+      log "Dev server ready at $DEV_URL — running targeted screenshots"
+      DIFF=$(git diff "$BASE_BRANCH...$BRANCH" 2>/dev/null)
+
+      # Claude session to take targeted screenshots of the changes
+      VERIFY_PROMPT_FILE=$(mktemp)
+      cat > "$VERIFY_PROMPT_FILE" <<VERIFY_EOF
+You are verifying a code change. The dev server is running at $DEV_URL.
+Use agent-browser to screenshot the specific pages and components affected by this change.
+
+TASK: $TASK_PROMPT
+
+GIT DIFF:
+$DIFF
+
+SCREENSHOT DIR: $SCREENSHOT_DIR
+
+Steps:
+1. Look at the diff to understand what changed (components, pages, routes)
+2. Use agent-browser to navigate to the affected pages
+3. Take a screenshot of each affected area: agent-browser screenshot $SCREENSHOT_DIR/description.png
+4. If the change is on a specific route, navigate there first
+5. Take 1-3 screenshots max — focus on what changed, not everything
+6. Print VERIFY_DONE when finished
+VERIFY_EOF
+
+      claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
+        --output-format stream-json 2>/dev/null | \
+        python3 -uc "
+import sys, json
+seen = set()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    etype = event.get('type', '')
+    if etype == 'assistant':
+        uid = event.get('uuid', '')
+        if uid in seen:
+            continue
+        seen.add(uid)
+        for block in event.get('message', {}).get('content', []):
+            if block.get('type') == 'text':
+                print(block['text'], flush=True)
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text:
+            print(text, flush=True)
+" 2>/dev/null | tee -a "$LOGFILE"
+      rm -f "$VERIFY_PROMPT_FILE"
     else
       log "Dev server did not start within 30s"
     fi
@@ -374,25 +422,31 @@ for cmd in ['dev', 'start', 'preview']:
     kill "$DEV_PID" 2>/dev/null
     wait "$DEV_PID" 2>/dev/null
   else
-    log "No dev/start/preview script found — skipping screenshot"
+    log "No dev/start/preview script found — skipping verification"
   fi
 
-  if [ -f "$SCREENSHOT" ] && [ -n "$PR_NUM" ]; then
+  # Attach screenshots to PR
+  SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
+  if [ -n "$SCREENSHOTS" ] && [ -n "$PR_NUM" ]; then
     GH_OWNER=$(gh api user --jq '.login' 2>/dev/null)
-    log "Screenshot saved: $SCREENSHOT"
 
-    # Commit screenshot to branch so GitHub can display it
-    cp "$SCREENSHOT" "$REPO_DIR/screenshot.png"
+    # Commit screenshots to branch
+    cp "$SCREENSHOT_DIR"/*.png "$REPO_DIR/" 2>/dev/null
     cd "$REPO_DIR"
-    git add screenshot.png
-    git commit -m "Add verification screenshot" 2>/dev/null
+    git add *.png
+    git commit -m "Add verification screenshots" 2>/dev/null
     git push origin "$BRANCH" 2>/dev/null
 
+    # Build PR comment with all screenshots
+    COMMENT="## Verification Screenshots\n"
+    for img in "$REPO_DIR"/*.png; do
+      IMG_NAME=$(basename "$img")
+      COMMENT="${COMMENT}\n### ${IMG_NAME%.png}\n![${IMG_NAME}](https://github.com/${GH_OWNER}/${REPO_NAME}/blob/${BRANCH}/${IMG_NAME}?raw=true)\n"
+    done
+
     gh pr comment "$PR_NUM" --repo "${GH_OWNER}/${REPO_NAME}" \
-      --body "## Screenshot
-![screenshot](https://github.com/${GH_OWNER}/${REPO_NAME}/blob/${BRANCH}/screenshot.png?raw=true)
-" 2>/dev/null
-    log "Screenshot attached to PR #$PR_NUM"
+      --body "$(echo -e "$COMMENT")" 2>/dev/null
+    log "Screenshots attached to PR #$PR_NUM"
   fi
 fi
 
