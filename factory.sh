@@ -118,7 +118,7 @@ if [ "$1" = "--verify" ]; then
   fi
   BASE_BRANCH="${BASE_BRANCH:-main}"
   git checkout "$BASE_BRANCH" 2>/dev/null
-  git pull origin "$BASE_BRANCH" 2>/dev/null
+  git pull --rebase origin "$BASE_BRANCH" 2>/dev/null
 
   DEV_CMD=$(python3 -c "
 import json
@@ -548,7 +548,7 @@ if [ "$IS_NEW_REPO" = false ]; then
     BASE_BRANCH="${BASE_BRANCH:-main}"
     log "Base branch: $BASE_BRANCH"
     if [ "$DRY_RUN" = false ]; then
-      git pull origin "$BASE_BRANCH" 2>&1 | ptee
+      git pull --rebase origin "$BASE_BRANCH" 2>&1 | ptee
     fi
   else
     BASE_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
@@ -591,6 +591,8 @@ if [ "$IS_NEW_REPO" = false ] && [ ! -d "$REPO_DIR/.github/workflows" ] && [ -f 
     cat > "$REPO_DIR/.github/workflows/ci.yml" <<'CIEOF'
 name: CI
 on: [pull_request]
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -609,6 +611,8 @@ CIEOF
     cat > "$REPO_DIR/.github/workflows/ci.yml" <<CIEOF
 name: CI
 on: [pull_request]
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   build:
     runs-on: ubuntu-latest

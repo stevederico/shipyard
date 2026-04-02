@@ -34,12 +34,12 @@ export SHIPYARD_PROJECTS="$HOME/code"
 ## Usage
 
 ```bash
-bash factory.sh                              # run one task
-bash factory.sh --dry-run                    # preview what it would pick
-bash factory.sh --parallel 3                 # run 3 tasks in parallel
-bash factory.sh --issues owner/repo          # pull GitHub issues into tasks/
-bash factory.sh --verify owner/repo          # re-verify all open PRs
-bash factory.sh --verify owner/repo 42       # re-verify a specific PR
+./factory.sh                              # run one task
+./factory.sh --dry-run                    # preview what it would pick
+./factory.sh --parallel 3                 # run 3 tasks in parallel
+./factory.sh --issues owner/repo          # pull GitHub issues into tasks/
+./factory.sh --verify owner/repo          # re-verify all open PRs
+./factory.sh --verify owner/repo 42       # re-verify a specific PR
 ```
 
 Run in its own terminal — not inside another tool. Monitor progress in a second terminal:
@@ -90,7 +90,7 @@ Completed tasks move to `tasks/done/`.
 Pull issues from any repo into your task queue:
 
 ```bash
-bash factory.sh --issues owner/repo
+./factory.sh --issues owner/repo
 ```
 
 This fetches open issues labeled `shipyard` and creates task files from them. After the factory completes a task, it comments the PR link on the issue and closes it.
@@ -99,7 +99,7 @@ This fetches open issues labeled `shipyard` and creates task files from them. Af
 
 ```bash
 crontab -e
-0 * * * * bash /path/to/shipyard/factory.sh >> /path/to/shipyard/shipyard.log 2>&1
+0 * * * * /path/to/shipyard/factory.sh >> /path/to/shipyard/shipyard.log 2>&1
 ```
 
 ## Factory Features
