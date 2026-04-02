@@ -52,10 +52,6 @@ ideal for solo, but a team would want Slack or web intake.
 
 ## Where Shipyard is ahead
 
-**Per-project todo.md.** No enterprise agent has publicly described subtask tracking like this.
-Their agents get a single prompt or ticket. Shipyard reads the project's own todo file, picks the
-first incomplete item, marks it done, and only marks the global task done when all subtasks complete.
-
 **Zero infrastructure.** Ramp needs Modal. Stripe needs EC2 devboxes. OpenAI Codex needs cloud
 VMs. You need `bash factory.sh`. One file, no dependencies, runs on a laptop.
 
