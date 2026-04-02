@@ -1,10 +1,9 @@
-- github issues 
-- tasks folder
+github issues 
+tasks folder support
 
 - CI gate (iterate-pr)
 - Scheduling (cron setup)
 - Fix stage 9 re-run loop
 
 - cloud sandbox?
-
-research
+- web dashboard for tasks

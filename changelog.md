@@ -1,5 +1,8 @@
 # Changelog
 
+  Configurable workflow file
+  Auto-detect base branch
+  Configurable standards file
   Fix audit bugs
   GitHub issues sync
   Tasks folder queue
