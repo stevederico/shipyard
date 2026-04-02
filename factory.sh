@@ -3,9 +3,9 @@
 # Reads next task from tasks.md, lets Claude handle everything autonomously.
 # Usage: bash factory.sh [--dry-run]
 
-SHIPYARD="$HOME/Desktop/projects/shipyard"
+SHIPYARD="${SHIPYARD_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 TASKS="$SHIPYARD/tasks.md"
-PROJECTS="$HOME/Desktop/projects"
+PROJECTS="${SHIPYARD_PROJECTS:-$(dirname "$SHIPYARD")}"
 LOGDIR="$SHIPYARD/logs"
 DATE=$(date +"%m/%d/%y")
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")

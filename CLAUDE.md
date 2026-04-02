@@ -11,7 +11,7 @@ Autonomous code factory that reads tasks from `tasks.md` and ships them as PRs.
 ## Task Format
 
 Tasks in `tasks.md`:
-- `- [ ] project: description` — pending task. Project name must match a directory in `/path/to/projects/`.
+- `- [ ] project: description` — pending task. Project name must match a directory in the projects folder (parent of shipyard, or `SHIPYARD_PROJECTS`).
 - `- [x] project: description (MM/DD/YY)` — completed task with date.
 - First unchecked task runs next (file order).
 
