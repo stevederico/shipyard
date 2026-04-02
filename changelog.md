@@ -1,5 +1,7 @@
 # Changelog
 
+  Remove hardcoded paths
+  Local task queue
   Gap analysis docs
   Remove --cwd flag
   Deterministic lint gates
