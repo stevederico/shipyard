@@ -176,6 +176,7 @@ fi
 stage "BRANCH"
 BRANCH="factory/$TASK_NAME"
 if [ "$IS_NEW_REPO" = false ] && [ "$DRY_RUN" = false ]; then
+  git branch -D "$BRANCH" 2>/dev/null
   git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
 fi
 log "Branch: $BRANCH"
@@ -207,7 +208,10 @@ fi
 stage "CODE"
 log "Ctrl+C to cancel. Monitor: tail -f $LOGFILE"
 CODE_START=$(date +%s)
-claude -p "
+
+# Write prompt to temp file to avoid quoting issues with script
+PROMPT_FILE=$(mktemp)
+cat > "$PROMPT_FILE" <<PROMPT_EOF
 You are running in factory mode. Complete this task autonomously.
 
 REPO: $REPO_NAME
@@ -226,7 +230,14 @@ $(cat "$SHIPYARD/standards.md")
 
 Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
 $(cat "$SHIPYARD/workflow.md")
-" --dangerously-skip-permissions --verbose 2>&1 | while IFS= read -r line; do echo "$line"; echo "$line" >> "$LOGFILE"; done
+PROMPT_EOF
+
+# Use script to get unbuffered output to both terminal and log
+script -q "$LOGFILE.code" bash -c "claude -p \"\$(cat '$PROMPT_FILE')\" --dangerously-skip-permissions --verbose 2>&1"
+rm -f "$PROMPT_FILE"
+cat "$LOGFILE.code" >> "$LOGFILE"
+rm -f "$LOGFILE.code"
+
 CODE_END=$(date +%s)
 CODE_ELAPSED=$(( CODE_END - CODE_START ))
 log "Claude session completed in ${CODE_ELAPSED}s"
