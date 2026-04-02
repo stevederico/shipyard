@@ -19,15 +19,19 @@ WORKTREE_DIR=""
 
 if [ "$AGENT_ID" = "0" ]; then
   log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
+  PREFIX=""
 else
   log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "[Agent-$AGENT_ID] $1"; }
+  PREFIX="[Agent-$AGENT_ID] "
 fi
 stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
 update_status() { echo "$1" > "$STATUS_DIR/agent-$AGENT_ID"; }
+# Prefixed tee: writes raw to log, prefixed to terminal
+ptee() { while IFS= read -r line; do echo "$line" >> "$LOGFILE"; echo "${PREFIX}${line}"; done; }
 
 # ── Ctrl+C cleanup ────────────────────────────────────────
 cleanup() {
-  echo "" | tee -a "$LOGFILE"
+  echo "" | ptee
   log "━━━ CANCELLED ━━━"
   # Remove task lock
   if [ -n "$TASK_FILE" ]; then
@@ -187,7 +191,7 @@ if [ -n "$TASK_REPO" ]; then
         REPO_DIR="$PROJECTS/$TASK_REPO"
       else
         log "Found on GitHub: $GH_REPO — cloning"
-        gh repo clone "$GH_REPO" "$PROJECTS/$TASK_REPO" 2>&1 | tee -a "$LOGFILE"
+        gh repo clone "$GH_REPO" "$PROJECTS/$TASK_REPO" 2>&1 | ptee
         REPO_DIR="$PROJECTS/$TASK_REPO"
       fi
     fi
@@ -207,7 +211,7 @@ else
     log "Would create new repo: $REPO_NAME ($REPO_DIR)"
   else
     mkdir -p "$REPO_DIR"
-    cd "$REPO_DIR" && git init 2>&1 | tee -a "$LOGFILE"
+    cd "$REPO_DIR" && git init 2>&1 | ptee
     IS_NEW_REPO=true
     log "Created new repo: $REPO_NAME ($REPO_DIR)"
   fi
@@ -231,7 +235,7 @@ if [ "$IS_NEW_REPO" = false ]; then
     BASE_BRANCH="${BASE_BRANCH:-main}"
     log "Base branch: $BASE_BRANCH"
     if [ "$DRY_RUN" = false ]; then
-      git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
+      git pull origin "$BASE_BRANCH" 2>&1 | ptee
     fi
   else
     BASE_BRANCH=$(git branch --show-current 2>/dev/null || echo "main")
@@ -251,7 +255,7 @@ if [ "$IS_NEW_REPO" = false ] && [ "$DRY_RUN" = false ]; then
   WORKTREE_DIR="$REPO_DIR/.worktrees/$TASK_NAME"
   rm -rf "$WORKTREE_DIR" 2>/dev/null
   git worktree prune 2>/dev/null
-  git worktree add "$WORKTREE_DIR" -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
+  git worktree add "$WORKTREE_DIR" -b "$BRANCH" 2>&1 | ptee
   REPO_DIR="$WORKTREE_DIR"
   cd "$REPO_DIR"
 fi
@@ -265,7 +269,7 @@ fi
 
 # ── Dry run summary ───────────────────────────────────────
 if [ "$DRY_RUN" = true ]; then
-  echo "" | tee -a "$LOGFILE"
+  echo "" | ptee
   log "━━━ DRY RUN SUMMARY ━━━"
   log "Task:       $TASK_NAME"
   log "Repo:       ${TASK_REPO:-(new repo)} → $REPO_DIR"
@@ -277,7 +281,7 @@ if [ "$DRY_RUN" = true ]; then
   log "Workflow:   $SHIPYARD/workflow.md"
   log ""
   log "━━━ PROMPT ━━━"
-  echo "$TASK_PROMPT" | tee -a "$LOGFILE"
+  echo "$TASK_PROMPT" | ptee
   rm -rf "$LOCK_DIR/$(basename "$TASK_FILE").lock" 2>/dev/null
   exit 0
 fi
@@ -341,7 +345,7 @@ for line in sys.stdin:
         text = event.get('result', '')
         if text:
             print(text, flush=True)
-" 2>/dev/null | tee -a "$LOGFILE"
+" 2>/dev/null | ptee
 rm -f "$PROMPT_FILE"
 
 CODE_END=$(date +%s)
@@ -459,7 +463,7 @@ for line in sys.stdin:
     if now - last_log > 15:
         print('[FIX] still working...', flush=True)
         last_log = now
-" 2>/dev/null | tee -a "$LOGFILE"
+" 2>/dev/null | ptee
     rm -f "$FIX_PROMPT_FILE"
 
     # Re-run lint checks
@@ -618,7 +622,7 @@ for line in sys.stdin:
     if now - last_log > 15:
         print('[VERIFY] still working...', flush=True)
         last_log = now
-" 2>/dev/null | tee -a "$LOGFILE")
+" 2>/dev/null | ptee)
       rm -f "$VERIFY_PROMPT_FILE"
 
       # Check if verification passed or failed
@@ -684,7 +688,7 @@ for line in sys.stdin:
     if now - last_log > 15:
         print('[VERIFY] still working...', flush=True)
         last_log = now
-" 2>/dev/null | tee -a "$LOGFILE"
+" 2>/dev/null | ptee
         rm -f "$FIX_PROMPT_FILE"
         log "Fix attempt completed"
       else
@@ -735,8 +739,8 @@ if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
     ISSUE_REPO=$(echo "$ISSUE_REF" | cut -d'#' -f1)
     ISSUE_NUM=$(echo "$ISSUE_REF" | cut -d'#' -f2)
     PR_URL=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1)
-    gh issue comment "$ISSUE_NUM" --repo "$ISSUE_REPO" --body "Shipped in ${PR_URL:-branch $BRANCH}" 2>&1 | tee -a "$LOGFILE"
-    gh issue close "$ISSUE_NUM" --repo "$ISSUE_REPO" 2>&1 | tee -a "$LOGFILE"
+    gh issue comment "$ISSUE_NUM" --repo "$ISSUE_REPO" --body "Shipped in ${PR_URL:-branch $BRANCH}" 2>&1 | ptee
+    gh issue close "$ISSUE_NUM" --repo "$ISSUE_REPO" 2>&1 | ptee
     log "Closed issue: $ISSUE_REF"
   fi
 
