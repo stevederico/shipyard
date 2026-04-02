@@ -1,110 +1,104 @@
 The big picture
 
   Ramp and Stripe are running factories at enterprise scale — hundreds of concurrent sandboxed VMs, integrated
-  into Slack/Sentry/Datadog, shipping 30-50% of their merged PRs autonomously. Shipyard is a 150-line shell script
-   on your laptop doing the same core loop: task in → code → test → PR out.
+  into Slack/Sentry/Datadog, shipping 30-50% of their merged PRs autonomously. Shipyard is a single shell script
+  on your laptop doing the same core loop: task in, code, test, PR out.
 
-  The surprising thing is how much overlap there already is.
+  As of v0.21+, most of the high-impact gaps have been closed.
 
   ---
   Where you're at parity
 
-  The pipeline structure is the same. Stripe calls theirs "blueprints" — state machines that mix deterministic
-  nodes (git, lint) with agentic nodes (LLM reasoning). Your 12-stage pipeline is exactly this pattern. Stages 1-5
-   and 8-12 are deterministic shell commands. Stage 6-7 are agentic. Same architecture, different scale.
+  Pipeline structure. Stripe calls theirs "blueprints" — state machines that mix deterministic nodes (git, lint)
+  with agentic nodes (LLM reasoning). Shipyard's 12-stage pipeline is exactly this pattern. Deterministic stages
+  (PICK, ROUTE, PULL, BRANCH, LINT, SHIP, UPDATE) interleave with agentic stages (CODE, FIX, VERIFY). Same
+  architecture, different scale.
 
-  Task intake works. Ramp has Slack, web, Chrome extension, voice. Stripe has Slack and tickets. You have
-  todos.md. For a solo developer, a text file you control is arguably better — no infrastructure, no permissions,
-  no webhook setup. You reorder tasks by moving lines.
+  Task intake. Ramp has Slack, web, Chrome extension, voice. Stripe has Slack and tickets. Shipyard has markdown
+  files in tasks/ plus --issues to pull labeled GitHub issues into the queue automatically. For a solo developer,
+  a text file you control is arguably better — no infrastructure, no permissions, no webhook setup.
 
-  Branch isolation and PR creation are identical. Everyone creates a feature branch, codes on it, opens a PR. No
-  difference here.
+  Branch isolation and PR creation. Everyone creates a feature branch, codes on it, opens a PR. No difference.
 
-  Coding standards enforcement is comparable. Stripe uses scoped rule files per directory (same format as
-  Cursor/Claude Code rules). Ramp uses MCP plugins. You use CLAUDE.md per project plus a factory prompt baseline.
-  Same concept.
+  Coding standards enforcement. Stripe uses scoped rule files per directory. Ramp uses MCP plugins. Shipyard
+  uses CLAUDE.md per project plus standards.md injected into every factory session. Same concept.
+
+  Self-verification. Ramp takes before/after screenshots with Chromium, checks Sentry, queries Datadog. Shipyard
+  now has a full VERIFY stage: starts a dev server, runs agent-browser to snapshot the DOM and take screenshots,
+  compares implementation against task requirements, and triggers a fix session if verification fails. Screenshots
+  are committed to the branch and attached to the PR as comments. The --verify flag also lets you batch-verify
+  all open PRs for a repo.
+
+  CI iteration loop. Stripe runs local lints in under 5 seconds, applies autofixes, then gives the agent one
+  more attempt if CI fails (max 2 rounds). Shipyard's FIX stage does the same: if LINT finds issues (secrets
+  committed, missing changelog, version not bumped, test failures), it passes the failures to a Claude session,
+  re-runs lint, and caps at 2 attempts.
+
+  Parallel execution. Ramp runs hundreds of sandboxed sessions. Stripe runs parallel devboxes on EC2. Shipyard
+  runs --parallel N agents in tmux, each pulling a different task via atomic lock files (mkdir-based), coding in
+  isolated git worktrees with agent-labeled output. You don't need hundreds — 3-5 instances burns through a task
+  queue fast on a single machine.
 
   ---
-  Where you're behind — and whether it matters
+  Where you're still behind
 
-  Gap 1: Self-verification (HIGH impact)
-
-  This is the biggest difference. After Ramp's agent opens a PR, it takes before/after screenshots with Chromium,
-  checks Sentry for new errors, queries Datadog metrics, and checks LaunchDarkly feature flags. It verifies its
-  own work using the same tools a human engineer would.
-
-  Shipyard ships the PR and trusts that Claude got it right. No visual check, no error monitoring, no runtime
-  verification.
-
-  But you already have the tools: agent-browser for screenshots, /qa for visual QA, /design-review for UI checks.
-  The gap isn't capability — it's wiring. A new stage between SHIP and UPDATE that runs agent-browser on a preview
-   URL would close this.
-
-  Gap 2: CI iteration loop (HIGH impact)
-
-  Stripe's approach is elegant: after the agent codes, they run local lints in under 5 seconds. If lints fail,
-  some have autofixes that get applied automatically. Then CI runs. If CI fails, the agent gets one more attempt
-  to fix. Max 2 rounds, then it stops and hands off to a human.
-
-  Your stage 9 FIX exists but is stubbed — it just logs "Skipped." So if Claude's code fails lint or tests, the
-  factory reports failure and moves on. It doesn't try to fix itself.
-
-  Implementing this is straightforward: if stage 8 LINT fails, pass the failures to a second claude -p call saying
-   "fix these issues," re-run lint, and cap at 3 attempts. Stripe caps at 2.
-
-  Gap 3: Parallel sessions (MEDIUM impact)
-
-  Ramp runs hundreds of sandboxed sessions simultaneously. Stripe runs parallel devboxes on EC2. You run one task
-  at a time.
-
-  For a solo developer, you don't need hundreds. But running 3-5 factory instances in parallel would let you burn
-  through your todo list faster. You already use tmux and worktrees for parallel Claude sessions. Running
-  factory.sh in 3 tmux panes, each pulling a different task, using git worktree instead of git checkout -b, would
-  work without any cloud infra.
-
-  The catch: your task picker always grabs the first item. You'd need to add a lock file or task index so parallel
-   runners don't pick the same task.
-
-  Gap 4: Environment isolation (MEDIUM impact, HIGH effort)
+  Gap 1: Environment isolation (MEDIUM impact, HIGH effort)
 
   Ramp spins up a full sandbox per session: Postgres, Redis, Temporal, RabbitMQ, Chromium, VS Code server. The
   agent has the same environment a human engineer would have locally. Stripe uses pre-warmed EC2 instances that
   provision in 10 seconds.
 
   Shipyard runs on your Mac. It shares your local state — if a factory run messes up a database or leaves ports
-  occupied, it affects your next run or your manual work.
+  occupied, it affects your next run or your manual work. Worktrees handle code isolation, and most projects use
+  SQLite (file-based, no shared server), so this is less painful than it sounds.
 
-  This is the hardest gap to close. You'd need Docker containers or Modal sandboxes per factory run. For a solo
-  developer, worktrees handle the code isolation, and your projects mostly use SQLite (file-based, no shared
-  server). So this is lower priority than it sounds.
+  Closing this would require Docker containers or Modal sandboxes per factory run. For a solo developer, this is
+  the one gap where the effort-to-value ratio doesn't justify it yet.
 
-  Gap 5: Visual verification (MEDIUM impact, LOW effort)
+  Gap 2: Observability integration (LOW impact for solo, HIGH for teams)
 
-  Ramp takes Chromium screenshots and attaches before/after diffs to PRs. This is really just gap 1
-  (self-verification) applied to the UI specifically.
+  Ramp's agent queries Sentry for new errors and Datadog for metric regressions after shipping. Stripe agents
+  check CI results and internal dashboards.
 
-  You have agent-browser and /qa. Adding a screenshot step to the factory would be a few lines in the prompt:
-  "after shipping, open the app in agent-browser, take a screenshot, attach to the PR."
+  Shipyard checks the dev server and takes screenshots but doesn't watch production metrics post-merge. For a
+  solo developer who monitors their own deploys, this matters less. For a team, you'd want the factory to check
+  that the deploy succeeded and no new errors appeared.
+
+  Gap 3: Intake breadth (LOW impact for solo)
+
+  Ramp has a Chrome extension where PMs visually select UI elements and request changes. Stripe triggers from
+  Slack messages. Shipyard triggers from markdown files and GitHub issues.
+
+  For a solo developer, markdown files are the ideal interface — no context switching, no permissions. For a team,
+  Slack or web intake would lower the bar for non-engineers to submit tasks.
 
   ---
   Where you're actually ahead
 
-  Per-project todo.md is something neither Ramp nor Stripe has publicly described. Their agents get a prompt or a
-  ticket. Your factory reads the project's own todo file for detailed subtask context, picks the first incomplete
-  item, marks it done, and only marks the global task done when all subtasks are complete. That's a more granular
-  task management system than "here's a Slack message."
+  Per-project todo.md. Neither Ramp nor Stripe has publicly described anything like this. Their agents get a
+  single prompt or ticket. Shipyard reads the project's own todo file for subtask context, picks the first
+  incomplete item, marks it done, and only marks the global task done when all subtasks are complete. More
+  granular task management than "here's a Slack message."
 
-  Zero infrastructure. Ramp needs Modal. Stripe needs EC2 devboxes. You need bash factory.sh. There's something to
-   be said for a factory that's one file, no dependencies, runs on a laptop.
+  Zero infrastructure. Ramp needs Modal. Stripe needs EC2 devboxes. You need bash factory.sh. One file, no
+  dependencies, runs on a laptop.
+
+  Self-healing verify loop. Most enterprise agents run verification as a pass/fail gate. Shipyard's VERIFY stage
+  detects failures and triggers a fix session automatically — verify, catch issues, fix, re-verify — before
+  marking the task done.
+
+  GitHub issue intake. --issues owner/repo pulls labeled issues into the task queue, and when the factory ships
+  a PR, it comments the PR link on the issue and closes it. Lightweight two-way integration without webhooks.
 
   ---
-  What I'd do next
+  What's left
 
-  1. Implement stage 9 FIX — the retry loop. Biggest bang for effort. Makes the factory self-healing.
-  2. Add visual verification — wire agent-browser into a post-ship stage. You already have the tool.
-  3. Add parallel support — lock file + worktrees so you can run 3 instances in tmux.
+  1. The remaining gaps (environment isolation, observability, intake breadth) are team-scale problems. For a solo
+     developer, the factory is functionally at parity with Ramp and Stripe on the core loop.
 
-  Those three changes would close the high-impact gaps without adding any infrastructure.
+  2. The next high-value addition would be a post-deploy health check — after the PR merges and deploys, curl
+     the production URL, check for 200s, and flag if something breaks. Low effort, closes the observability gap
+     for the common case.
 
 
 ## The Big Company Agents
