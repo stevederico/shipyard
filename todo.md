@@ -11,3 +11,4 @@ sandbox plan
 - environment isolation: Docker or Modal sandbox per run (Ramp/Stripe parity)
 - observability: post-deploy health check against production URL
 - intake breadth: Slack, web UI, or PR comment triggers for non-engineer access
+- context injection: load target repo CLAUDE.md and representative files into prompt
