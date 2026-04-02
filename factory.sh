@@ -278,7 +278,6 @@ import sys, json, time, signal
 signal.alarm(120)
 signal.signal(signal.SIGALRM, lambda *_: (print('  timed out', flush=True), sys.exit(0)))
 seen = set()
-last_log = time.time()
 for line in sys.stdin:
     line = line.strip()
     if not line: continue
@@ -290,15 +289,22 @@ for line in sys.stdin:
         if uid in seen: continue
         seen.add(uid)
         for block in event.get('message', {}).get('content', []):
-            if block.get('type') == 'text':
+            bt = block.get('type', '')
+            if bt == 'text':
                 print('  ' + block['text'], flush=True)
-                last_log = time.time()
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read': print(f'    Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit': print(f'    Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write': print(f'    Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash': print(f'    Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep': print(f'    Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob': print(f'    Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else: print(f'    Tool: {name}'.rstrip(), flush=True)
     elif etype == 'result':
         text = event.get('result', '')
         if text: print('  ' + text, flush=True)
-    if time.time() - last_log > 15:
-        print('  still working...', flush=True)
-        last_log = time.time()
 " 2>/dev/null | tee "$VERIFY_LOG"
     rm -f "$VERIFY_PROMPT_FILE"
 
@@ -596,7 +602,6 @@ for line in sys.stdin:
     except json.JSONDecodeError:
         continue
     etype = event.get('type', '')
-    # Assistant text messages (deduplicate by uuid)
     if etype == 'assistant':
         msg = event.get('message', {})
         uid = event.get('uuid', '')
@@ -604,9 +609,27 @@ for line in sys.stdin:
             continue
         seen.add(uid)
         for block in msg.get('content', []):
-            if block.get('type') == 'text':
+            bt = block.get('type', '')
+            if bt == 'text':
                 print(block['text'], flush=True)
-    # Final result
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read':
+                    print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit':
+                    print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write':
+                    print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash':
+                    cmd = inp.get('command', '')
+                    print(f'  Running: {cmd[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep':
+                    print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob':
+                    print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else:
+                    print(f'  Tool: {name}'.rstrip(), flush=True)
     elif etype == 'result':
         text = event.get('result', '')
         if text:
@@ -704,33 +727,33 @@ signal.alarm(120)
 signal.signal(signal.SIGALRM, lambda *_: (print('timed out', flush=True), sys.exit(0)))
 
 seen = set()
-last_log = time.time()
 for line in sys.stdin:
     line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        continue
+    if not line: continue
+    try: event = json.loads(line)
+    except json.JSONDecodeError: continue
     etype = event.get('type', '')
     if etype == 'assistant':
         uid = event.get('uuid', '')
-        if uid in seen:
-            continue
+        if uid in seen: continue
         seen.add(uid)
         for block in event.get('message', {}).get('content', []):
-            if block.get('type') == 'text':
+            bt = block.get('type', '')
+            if bt == 'text':
                 print(block['text'], flush=True)
-                last_log = time.time()
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else: print(f'  Tool: {name}'.rstrip(), flush=True)
     elif etype == 'result':
         text = event.get('result', '')
-        if text:
-            print(text, flush=True)
-    now = time.time()
-    if now - last_log > 15:
-        print('still working...', flush=True)
-        last_log = now
+        if text: print(text, flush=True)
 " 2>/dev/null | ptee
     rm -f "$FIX_PROMPT_FILE"
 
@@ -926,36 +949,37 @@ signal.alarm(120)
 signal.signal(signal.SIGALRM, lambda *_: (print('VERIFY_PASS (timed out)', flush=True), sys.exit(0)))
 
 seen = set()
-last_log = time.time()
 output = []
 for line in sys.stdin:
     line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        continue
+    if not line: continue
+    try: event = json.loads(line)
+    except json.JSONDecodeError: continue
     etype = event.get('type', '')
     if etype == 'assistant':
         uid = event.get('uuid', '')
-        if uid in seen:
-            continue
+        if uid in seen: continue
         seen.add(uid)
         for block in event.get('message', {}).get('content', []):
-            if block.get('type') == 'text':
+            bt = block.get('type', '')
+            if bt == 'text':
                 print(block['text'], flush=True)
                 output.append(block['text'])
-                last_log = time.time()
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else: print(f'  Tool: {name}'.rstrip(), flush=True)
     elif etype == 'result':
         text = event.get('result', '')
         if text:
             print(text, flush=True)
             output.append(text)
-    now = time.time()
-    if now - last_log > 15:
-        print('still working...', flush=True)
-        last_log = now
 " 2>/dev/null | ptee)
       rm -f "$VERIFY_PROMPT_FILE"
 
@@ -997,33 +1021,33 @@ signal.alarm(120)
 signal.signal(signal.SIGALRM, lambda *_: (print('VERIFY_PASS (timed out)', flush=True), sys.exit(0)))
 
 seen = set()
-last_log = time.time()
 for line in sys.stdin:
     line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        continue
+    if not line: continue
+    try: event = json.loads(line)
+    except json.JSONDecodeError: continue
     etype = event.get('type', '')
     if etype == 'assistant':
         uid = event.get('uuid', '')
-        if uid in seen:
-            continue
+        if uid in seen: continue
         seen.add(uid)
         for block in event.get('message', {}).get('content', []):
-            if block.get('type') == 'text':
+            bt = block.get('type', '')
+            if bt == 'text':
                 print(block['text'], flush=True)
-                last_log = time.time()
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else: print(f'  Tool: {name}'.rstrip(), flush=True)
     elif etype == 'result':
         text = event.get('result', '')
-        if text:
-            print(text, flush=True)
-    now = time.time()
-    if now - last_log > 15:
-        print('still working...', flush=True)
-        last_log = now
+        if text: print(text, flush=True)
 " 2>/dev/null | ptee
         rm -f "$FIX_PROMPT_FILE"
         log "Fix attempt completed"
