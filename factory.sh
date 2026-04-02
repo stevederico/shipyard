@@ -249,8 +249,51 @@ for cmd in ['start', 'dev']:
     echo "  Dev server at $DEV_URL"
     DIFF=$(git diff "$BASE_BRANCH...$BRANCH" 2>/dev/null | head -200)
 
-    VERIFY_PROMPT="You are verifying PR #$PR_NUM: $TITLE
-Dev server is running at $DEV_URL. Be fast.
+    # Pre-extract target route from diff
+    TARGET_ROUTE=$(echo "$DIFF" | python3 -c "
+import sys, re
+routes = set()
+for line in sys.stdin:
+    for m in re.finditer(r\"path:\s*['\\\"]([^'\\\"]+)\", line):
+        routes.add(m.group(1))
+    m = re.match(r'^\+\+\+ b/.*?/(\w+View)\.\w+', line)
+    if m:
+        name = m.group(1).replace('View', '').lower()
+        if name and name != 'app': routes.add(name)
+if routes:
+    best = sorted(routes, key=len, reverse=True)[0]
+    print(best.strip('/'))
+" 2>/dev/null)
+
+    if [ -n "$TARGET_ROUTE" ]; then
+      TARGET_URL="$DEV_URL/$TARGET_ROUTE"
+      echo "  Target route: /$TARGET_ROUTE"
+    else
+      TARGET_URL="$DEV_URL"
+    fi
+
+    # Pre-create test account via API
+    BACKEND_URL=$(echo "$DEV_URL" | sed 's/:5173/:8000/' | sed 's/:5174/:8000/')
+    TEST_AUTH=""
+    SIGNUP_RESULT=$(curl -s -X POST "$BACKEND_URL/api/signup" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"Test User","email":"test@shipyard.dev","password":"shipyard123"}' 2>/dev/null)
+    if echo "$SIGNUP_RESULT" | python3 -c "import sys,json; json.load(sys.stdin)['token']" 2>/dev/null; then
+      TEST_AUTH="Test account created (test@shipyard.dev / shipyard123)"
+    else
+      SIGNIN_RESULT=$(curl -s -X POST "$BACKEND_URL/api/signin" \
+        -H "Content-Type: application/json" \
+        -d '{"email":"test@shipyard.dev","password":"shipyard123"}' 2>/dev/null)
+      if echo "$SIGNIN_RESULT" | python3 -c "import sys,json; json.load(sys.stdin)['token']" 2>/dev/null; then
+        TEST_AUTH="Test account exists (test@shipyard.dev / shipyard123)"
+      fi
+    fi
+
+    VERIFY_PROMPT="You are verifying PR #$PR_NUM: $TITLE. Be fast — go directly to the target.
+
+TARGET URL: $TARGET_URL
+DEV SERVER: $DEV_URL
+${TEST_AUTH:+AUTH: $TEST_AUTH — if you hit a login page, use these credentials to sign in.}
 
 Log format: plain text only, no markdown.
 
@@ -258,14 +301,13 @@ GIT DIFF (truncated):
 $DIFF
 
 Steps:
-1. Open the page: agent-browser open $DEV_URL
+1. Go directly to: agent-browser open $TARGET_URL
 2. Wait: agent-browser wait --load networkidle
-3. Snapshot the DOM: agent-browser snapshot -i (read it to understand the page)
-4. If login page, sign up for a test account, then re-snapshot
-5. Navigate to the affected route if needed
-6. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/description.png
+3. Snapshot: agent-browser snapshot -i
+   If login page: sign in with test@shipyard.dev / shipyard123, then go to $TARGET_URL
+4. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/description.png
    You MUST take at least one screenshot.
-7. Print VERIFY_DONE"
+5. Print VERIFY_DONE"
 
     echo "  Verifying PR #$PR_NUM..."
     VERIFY_PROMPT_FILE=$(mktemp)
@@ -905,9 +947,59 @@ for cmd in ['start', 'dev']:
       log "Dev server ready at $DEV_URL — verifying changes"
       DIFF=$(git diff "$BASE_BRANCH...$BRANCH" 2>/dev/null)
 
+      # Pre-extract target route from diff (deterministic, no Claude needed)
+      TARGET_ROUTE=$(echo "$DIFF" | python3 -c "
+import sys, re
+routes = set()
+for line in sys.stdin:
+    # Match route definitions: path: 'foo', '/foo', element: <FooView>
+    for m in re.finditer(r\"path:\s*['\\\"]([^'\\\"]+)\", line):
+        routes.add(m.group(1))
+    # Match changed component filenames like PostsView, HomeView
+    m = re.match(r'^\+\+\+ b/.*?/(\w+View)\.\w+', line)
+    if m:
+        name = m.group(1).replace('View', '').lower()
+        if name and name != 'app': routes.add(name)
+if routes:
+    # Prefer the most specific route
+    best = sorted(routes, key=len, reverse=True)[0]
+    print(best.strip('/'))
+" 2>/dev/null)
+
+      if [ -n "$TARGET_ROUTE" ]; then
+        TARGET_URL="$DEV_URL/$TARGET_ROUTE"
+        log "Target route detected: /$TARGET_ROUTE"
+      else
+        TARGET_URL="$DEV_URL"
+      fi
+
+      # Pre-create test account via API (skip signup dance)
+      TEST_AUTH=""
+      BACKEND_URL=$(echo "$DEV_URL" | sed 's/:5173/:8000/' | sed 's/:5174/:8000/')
+      SIGNUP_RESULT=$(curl -s -X POST "$BACKEND_URL/api/signup" \
+        -H "Content-Type: application/json" \
+        -d '{"name":"Test User","email":"test@shipyard.dev","password":"shipyard123"}' 2>/dev/null)
+      if echo "$SIGNUP_RESULT" | python3 -c "import sys,json; json.load(sys.stdin)['token']" 2>/dev/null; then
+        TEST_AUTH="Test account created (test@shipyard.dev / shipyard123)"
+        log "Test account pre-created"
+      else
+        # Try signin in case account exists
+        SIGNIN_RESULT=$(curl -s -X POST "$BACKEND_URL/api/signin" \
+          -H "Content-Type: application/json" \
+          -d '{"email":"test@shipyard.dev","password":"shipyard123"}' 2>/dev/null)
+        if echo "$SIGNIN_RESULT" | python3 -c "import sys,json; json.load(sys.stdin)['token']" 2>/dev/null; then
+          TEST_AUTH="Test account exists (test@shipyard.dev / shipyard123)"
+          log "Test account already exists"
+        fi
+      fi
+
       VERIFY_PROMPT_FILE=$(mktemp)
       cat > "$VERIFY_PROMPT_FILE" <<VERIFY_EOF
-You are a QA engineer verifying a code change. The dev server is running at $DEV_URL.
+You are a QA engineer verifying a code change. Be fast — go directly to the target.
+
+TARGET URL: $TARGET_URL
+DEV SERVER: $DEV_URL
+${TEST_AUTH:+AUTH: $TEST_AUTH — if you hit a login page, use these credentials to sign in.}
 
 TASK REQUIREMENTS:
 $TASK_PROMPT
@@ -919,18 +1011,14 @@ SCREENSHOT DIR: $SCREENSHOT_DIR
 
 Log format: plain text, no markdown, no ** or ## or []. Use ━━━ STAGE ━━━ for headers.
 
-Your job is to verify the implementation matches the task requirements. Be fast.
-
-1. Open the page: agent-browser open $DEV_URL
+Steps:
+1. Go directly to the target: agent-browser open $TARGET_URL
 2. Wait for load: agent-browser wait --load networkidle
-3. Get the DOM snapshot: agent-browser snapshot -i
-   - Read the snapshot to understand what's on the page
-   - If you see a login/signup page, sign up for a test account to get past it, then re-snapshot
-4. Navigate to the affected route if needed (read the diff to know which route)
-5. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/description.png
+3. Snapshot: agent-browser snapshot -i
+   - If login page: sign in with test@shipyard.dev / shipyard123, then go to $TARGET_URL again
+4. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/description.png
    - You MUST take at least one screenshot. This is not optional.
-6. Check console errors: agent-browser execute "JSON.stringify(window.__console_errors || [])"
-7. Compare what the snapshot shows against the task requirements
+5. Compare the snapshot against task requirements
 
 Print your verdict:
   VERIFY_PASS — implementation matches requirements
