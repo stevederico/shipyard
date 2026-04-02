@@ -220,7 +220,7 @@ Steps:
     echo "$VERIFY_PROMPT" > "$VERIFY_PROMPT_FILE"
     VERIFY_LOG=$(mktemp)
     claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
-      --output-format stream-json 2>/dev/null | \
+      --model sonnet --output-format stream-json 2>/dev/null | \
       python3 -uc "
 import sys, json, time, signal
 signal.alarm(120)
@@ -644,7 +644,7 @@ Steps:
 LINT_FIX_EOF
 
     claude -p "$(cat "$FIX_PROMPT_FILE")" --dangerously-skip-permissions \
-      --output-format stream-json 2>/dev/null | \
+      --model sonnet --output-format stream-json 2>/dev/null | \
       python3 -uc "
 import sys, json, time, signal
 
@@ -808,7 +808,7 @@ VERIFY_EOF
 
       log "Verifying implementation (max 120s)..."
       VERIFY_OUTPUT=$(claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
-        --output-format stream-json 2>/dev/null | \
+        --model sonnet --output-format stream-json 2>/dev/null | \
         python3 -uc "
 import sys, json, time, signal
 
@@ -879,7 +879,7 @@ FIX_EOF
 
         log "Running fix session..."
         claude -p "$(cat "$FIX_PROMPT_FILE")" --dangerously-skip-permissions \
-          --output-format stream-json 2>/dev/null | \
+          --model sonnet --output-format stream-json 2>/dev/null | \
           python3 -uc "
 import sys, json, time, signal
 
