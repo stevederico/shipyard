@@ -86,11 +86,12 @@ and agentic nodes. ~500 curated MCP tools via "Toolshed." Run in pre-loaded EC2 
 - [Minions Part 2](https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents-part-2)
 
 ### OpenAI Codex
-Cloud-based agent in ChatGPT. Runs tasks in parallel sandboxes, produces PRs. Powered by codex-1
-(fine-tuned o3), later upgraded to GPT-5-Codex and GPT-5.2-Codex (SOTA on SWE-Bench Pro). Available
-to Plus users.
+Cloud-based coding agent available in ChatGPT, as a standalone web app, a CLI tool, and a GitHub
+integration (`@codex` on PRs and issues). Runs tasks in parallel sandboxes. Currently powered by
+GPT-5.4. Included with ChatGPT Plus, Pro, Business, Edu, and Enterprise plans.
 
-- [Introducing Codex](https://openai.com/index/introducing-codex/)
+- [Introducing the Codex app](https://openai.com/index/introducing-the-codex-app/)
+- [openai/codex CLI](https://github.com/openai/codex)
 
 ### GitHub Copilot Coding Agent
 Assign a GitHub issue to Copilot. It boots a VM, clones the repo, codes autonomously, pushes commits
