@@ -212,7 +212,7 @@ $(cat "$SHIPYARD/standards.md")
 
 Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
 $(cat "$SHIPYARD/workflow.md")
-" --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
+" --dangerously-skip-permissions --verbose 2>&1 | while IFS= read -r line; do echo "$line"; echo "$line" >> "$LOGFILE"; done
 
 # ── LINT (deterministic checks) ───────────────────────────
 stage "LINT"
@@ -301,3 +301,6 @@ fi
 if [ "$IS_NEW_REPO" = false ]; then
   cd "$REPO_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
 fi
+
+# Exit based on factory result
+grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null
