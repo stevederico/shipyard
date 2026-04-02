@@ -90,7 +90,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 
 1. **Task queue** — `tasks/` folder, one markdown file per task
 2. **Task routing** — maps to existing project or creates a new one
-3. **Branch isolation** — agents work on feature branches, never master
+3. **Branch isolation** — agents work on feature branches, never the default branch
 4. **Autonomous coding** — Claude runs non-interactively with full permissions
 5. **Test verification** — run tests, fail fast if broken
 6. **PR creation** — open a PR via `gh` CLI for every task
@@ -103,18 +103,17 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 
 | Stage | Type | What |
 |-------|------|------|
-| 1/12 PICK | deterministic | Take first `.md` file from `tasks/` |
-| 2/12 ROUTE | deterministic | Find project directory or create new one |
-| 3/12 PULL | deterministic | git pull |
-| 4/12 PLAN | deterministic | Read project context (CLAUDE.md) |
-| 5/12 BRANCH | deterministic | Create feature branch, save pre-state |
-| 6/12 CODE | agentic | Claude implements (with coding standards in prompt) |
-| 7/12 TEST | agentic | Claude runs tests (inside session) |
-| 8/12 LINT | deterministic | Shell checks: no secrets, changelog, version bump |
-| 9/12 FIX | agentic | Claude fixes lint failures (max 3 attempts) |
-| 10/12 SHIP | deterministic | Confirm PR was opened |
-| 11/12 UPDATE | deterministic | Move task file to `tasks/done/` |
-| 12/12 DONE | deterministic | Report result, return to master |
+| PICK | deterministic | Take first `.md` file from `tasks/` |
+| ROUTE | deterministic | Find project directory or create new one |
+| PULL | deterministic | Detect default branch, git pull |
+| BRANCH | deterministic | Create feature branch, save pre-state |
+| CODE | agentic | Claude implements (standards.md + workflow.md) |
+| TEST | agentic | Claude runs tests (inside same session) |
+| LINT | deterministic | Shell checks: no secrets, test failures |
+| FIX | agentic | Claude fixes lint failures (max 3 attempts) |
+| SHIP | deterministic | Confirm PR was opened |
+| UPDATE | deterministic | Move task file to `tasks/done/`, close GitHub issue |
+| DONE | deterministic | Report result, return to default branch |
 
 ## Configuration
 

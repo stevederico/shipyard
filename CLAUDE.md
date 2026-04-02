@@ -4,7 +4,7 @@ Autonomous code factory that reads task files from `tasks/` and ships them as PR
 
 ## Structure
 
-- `factory.sh` — 12-stage factory pipeline. Deterministic stages interleaved with agentic Claude sessions.
+- `factory.sh` — 11-stage factory pipeline. Deterministic stages interleaved with agentic Claude sessions.
 - `tasks/` — task queue. One markdown file per task. Completed tasks move to `tasks/done/`.
 - `standards.md` — coding standards injected into every Claude session.
 - `workflow.md` — post-coding steps (commit, push, PR). Edit to customize.
@@ -22,9 +22,9 @@ Each file in `tasks/` is a task. The filename is the task name, the body is the 
 
 1. Pick first `.md` file from `tasks/`
 2. Route to existing project or create a new one
-3. Git pull, read project's CLAUDE.md for context
-4. Claude codes, tests, commits, pushes branch, opens PR
-5. Deterministic lint checks: no secrets staged, changelog updated, version bumped
+3. Detect default branch (`main`/`master`), git pull
+4. Claude codes, tests, follows workflow.md (commit, push, PR)
+5. Deterministic lint checks: no secrets, test failures
 6. Task file moved to `tasks/done/`
 7. Logs to `logs/{timestamp}.log`
 
