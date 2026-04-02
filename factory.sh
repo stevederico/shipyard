@@ -20,7 +20,7 @@ WORKTREE_DIR=""
 if [ "$AGENT_ID" = "0" ]; then
   log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
 else
-  log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "[A$AGENT_ID] $1"; }
+  log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "[Agent-$AGENT_ID] $1"; }
 fi
 stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
 update_status() { echo "$1" > "$STATUS_DIR/agent-$AGENT_ID"; }
