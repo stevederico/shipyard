@@ -51,6 +51,21 @@ crontab -e
 0 * * * * bash /path/to/shipyard/factory.sh >> /path/to/shipyard/shipyard.log 2>&1
 ```
 
+## Factory Features
+
+Based on patterns from Ramp Inspect and Stripe Minions:
+
+1. **Task queue** — self-contained `tasks.md` with `project: description` format
+2. **Task routing** — maps task to the right project directory automatically
+3. **Branch isolation** — agents work on feature branches, never master
+4. **Autonomous coding** — Claude runs non-interactively with full permissions
+5. **Test verification** — run tests, fail fast if broken
+6. **PR creation** — open a PR via `gh` CLI for every task
+7. **CI gate** — tests must pass before merge (iterate-pr pattern)
+8. **Task completion** — mark task done in `tasks.md` with date
+9. **Logging** — timestamped logs per run for debugging
+10. **Scheduling** — cron or trigger to run without you
+
 ## Stages
 
 | Stage | Type | What |
