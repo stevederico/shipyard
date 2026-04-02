@@ -1,5 +1,9 @@
 # Changelog
 
+  Fix audit bugs
+  GitHub issues sync
+  Tasks folder queue
+  Create new projects
   Remove hardcoded paths
   Local task queue
   Gap analysis docs
