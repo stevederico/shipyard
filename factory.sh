@@ -213,6 +213,7 @@ Steps:
     echo "  Verifying PR #$PR_NUM..."
     VERIFY_PROMPT_FILE=$(mktemp)
     echo "$VERIFY_PROMPT" > "$VERIFY_PROMPT_FILE"
+    VERIFY_LOG=$(mktemp)
     claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
       --output-format stream-json 2>/dev/null | \
       python3 -uc "
@@ -241,7 +242,7 @@ for line in sys.stdin:
     if time.time() - last_log > 15:
         print('  still working...', flush=True)
         last_log = time.time()
-" 2>/dev/null
+" 2>/dev/null | tee "$VERIFY_LOG"
     rm -f "$VERIFY_PROMPT_FILE"
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
@@ -268,9 +269,16 @@ for line in sys.stdin:
       echo "  Screenshots attached to PR #$PR_NUM"
     else
       echo "  No screenshots taken"
+      VERIFY_REASON=$(tail -10 "$VERIFY_LOG" 2>/dev/null | grep -v 'still working' | tail -5)
       gh pr comment "$PR_NUM" --repo "$REPO" \
-        --body "Screenshots missing: verify session did not produce screenshots" 2>/dev/null
+        --body "Screenshots missing
+
+Verify output:
+\`\`\`
+${VERIFY_REASON:-no output from verify session}
+\`\`\`" 2>/dev/null
     fi
+    rm -f "$VERIFY_LOG"
 
     cd "$REPO_DIR"
     rm -rf "$WORKTREE" 2>/dev/null
@@ -951,7 +959,13 @@ for line in sys.stdin:
     elif [ -z "$DEV_URL" ]; then
       REASON="dev server did not start within 30s"
     else
-      REASON="verify session ran but did not produce screenshots — check logs"
+      VERIFY_TAIL=$(tail -10 "$LOGFILE" 2>/dev/null | grep -v 'still working' | tail -5)
+      REASON="verify session ran but did not produce screenshots
+
+Verify output:
+\`\`\`
+${VERIFY_TAIL:-no output}
+\`\`\`"
     fi
     log "WARN: No screenshots — $REASON"
     GH_OWNER=$(gh api user --jq '.login' 2>/dev/null)
