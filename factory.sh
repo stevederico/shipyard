@@ -48,14 +48,17 @@ TASK: $TASK_CLEAN
 Steps:
 1. Figure out which project in $PROJECTS this task belongs to (ls the directory, match by name)
 2. cd to that project and git pull origin master
-3. Read todo.md in the project root if it exists — it has detailed context for this task
-4. Read CLAUDE.md in the project root if it exists — it has project-specific instructions
-5. Create a feature branch: factory/$(date +%Y%m%d-%H%M)
-6. Complete the task
-7. Run tests if they exist (deno run test)
-8. If tests pass: commit and push the branch, then open a PR via gh pr create
-9. If no tests exist: commit and push the branch, open a PR
-10. At the end, print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
+3. Read CLAUDE.md in the project root if it exists — it has project-specific instructions
+4. Read todo.md in the project root if it exists — pick the FIRST incomplete item (lines starting with '- ')
+5. If todo.md exists, work on that specific subtask. If no todo.md, work on the global task description above.
+6. Create a feature branch: factory/$(date +%Y%m%d-%H%M)
+7. Complete the subtask
+8. Run tests if they exist (deno run test)
+9. If tests pass: commit and push the branch, then open a PR via gh pr create
+10. If no tests exist: commit and push the branch, open a PR
+11. After shipping, mark the subtask as done in todo.md (remove the '- ' prefix)
+12. At the end, print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
+13. Also print FACTORY_REMAINING:N where N is the number of '- ' lines still in todo.md (0 if no todo.md)
 " --dangerously-skip-permissions --output-format stream-json 2>&1 | while IFS= read -r line; do
   # Parse streaming JSON for human-readable output
   TYPE=$(echo "$line" | python3 -c "import sys,json
@@ -87,23 +90,33 @@ log "---claude-session-end---"
 
 # Check result from raw JSON log
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE.raw.json" 2>/dev/null; then
-  log "✓ Task completed successfully"
+  log "✓ Subtask completed successfully"
 
-  # Remove the task line
-  sed -i '' "/^- $(echo "$TASK" | sed 's/[\/&]/\\&/g')$/d" "$TODOS"
+  # Check how many subtasks remain in the project's todo.md
+  REMAINING=$(grep -o "FACTORY_REMAINING:[0-9]*" "$LOGFILE.raw.json" | tail -1 | cut -d: -f2)
+  log "Remaining subtasks: ${REMAINING:-unknown}"
 
-  # Add to today's date section (or create it)
-  if grep -q "^## $DATE" "$TODOS"; then
-    sed -i '' "/^## $DATE$/a\\
+  if [ "$REMAINING" = "0" ]; then
+    log "All subtasks done — marking global task complete"
+
+    # Remove the task line from global todos
+    sed -i '' "/^- $(echo "$TASK" | sed 's/[\/&]/\\&/g')$/d" "$TODOS"
+
+    # Add to today's date section (or create it)
+    if grep -q "^## $DATE" "$TODOS"; then
+      sed -i '' "/^## $DATE$/a\\
 $TASK_CLEAN" "$TODOS"
-  else
-    sed -i '' "/^## Tasks$/i\\
+    else
+      sed -i '' "/^## Tasks$/i\\
 ## $DATE\\
 $TASK_CLEAN\\
 " "$TODOS"
-  fi
+    fi
 
-  log "Moved task to completed: $DATE"
+    log "Moved task to completed: $DATE"
+  else
+    log "Project has $REMAINING subtasks remaining — keeping in global todos"
+  fi
 else
   log "✗ Task failed (see $LOGFILE.raw.json)"
 fi
