@@ -59,16 +59,7 @@ Add a dark mode toggle to the settings page. Should respect system
 preference by default. Use the existing ThemeProvider context.
 ```
 
-**With screenshot verification** — add `url:` to take a screenshot after shipping and attach it to the PR:
-
-```markdown
----
-repo: my-app
-url: http://localhost:5173
----
-
-Add a dark mode toggle to the settings page.
-```
+**Screenshot verification** — if `agent-browser` is installed and the project has a `dev`, `start`, or `preview` script in package.json, Shipyard automatically starts the dev server, takes a screenshot, and attaches it to the PR.
 
 **New repo** — omit `repo:` and Shipyard creates one (named from the filename):
 
