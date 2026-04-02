@@ -1,5 +1,7 @@
 # Changelog
 
+  Gap analysis docs
+  Remove --cwd flag
   Deterministic lint gates
   Stream Claude session
   Verbose stage logging

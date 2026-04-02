@@ -71,7 +71,7 @@ else
 fi
 
 if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
-  log "Project CLAUDE.md found — will be loaded via --cwd"
+  log "Project CLAUDE.md found — will be loaded from working directory"
 else
   log "No project CLAUDE.md"
 fi
@@ -126,7 +126,7 @@ Steps:
 12. Mark the subtask done in todo.md (remove the '- ' prefix)
 13. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
 14. Print FACTORY_REMAINING:N where N is the number of '- ' lines still in todo.md (0 if no todo.md)
-" --cwd "$PROJECT_DIR" --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
+" --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
 # ── 8/12 LINT (deterministic checks) ──────────────────────
 stage "8/12 LINT"
