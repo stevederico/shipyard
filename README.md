@@ -55,7 +55,16 @@ Build a weather dashboard that shows 5-day forecast.
 Use OpenWeatherMap API. Include a search bar for city lookup.
 ```
 
-Tasks run in alphabetical order by filename. Completed tasks move to `tasks/done/`.
+Tasks run in alphabetical order by filename. Prefix with numbers to control priority:
+
+```
+tasks/
+  01-fix-auth.md           ← runs first
+  02-add-dashboard.md
+  03-refactor-api.md
+```
+
+Completed tasks move to `tasks/done/`.
 
 ## Schedule
 
