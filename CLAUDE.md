@@ -1,30 +1,29 @@
 # Shipyard
 
-Autonomous code factory that reads tasks from `~/todos.md` and ships them as PRs.
+Autonomous code factory that reads tasks from `tasks.md` and ships them as PRs.
 
 ## Structure
 
 - `factory.sh` — 12-stage factory pipeline. Deterministic stages interleaved with agentic Claude sessions.
+- `tasks.md` — task queue. Self-contained, not coupled to any external todo system.
 - `logs/` — timestamped logs per run (gitignored)
 
 ## Task Format
 
-Tasks in todos.md:
-- `- task name [N]` — incomplete. `[N]` is completion percentage (0-10), not priority.
-- `task name` (no dash) under a date header = completed
-- File order determines what runs next (WIP first, then Tasks)
+Tasks in `tasks.md`:
+- `- [ ] project: description` — pending task. Project name must match a directory in `/path/to/projects/`.
+- `- [x] project: description (MM/DD/YY)` — completed task with date.
+- First unchecked task runs next (file order).
 
 ## Factory Flow
 
-1. Pick first incomplete task from WIP, then Tasks (file order)
-2. Route to project directory in `/path/to/projects/`
-3. Git pull, read project's todo.md for subtask context
-4. Run Claude with `--cwd` (loads project CLAUDE.md automatically)
-5. Claude codes, tests, commits, pushes branch, opens PR
-6. Deterministic lint checks: no secrets staged, changelog updated, version bumped
-7. Subtask marked done in project todo.md
-8. Global task only marked done when ALL project subtasks complete (0 remaining)
-9. Logs to `logs/{timestamp}.log`
+1. Pick first `- [ ]` task from `tasks.md`
+2. Route to project directory via `project:` prefix
+3. Git pull, read project's CLAUDE.md and todo.md for context
+4. Claude codes, tests, commits, pushes branch, opens PR
+5. Deterministic lint checks: no secrets staged, changelog updated, version bumped
+6. Task marked `- [x]` with date in `tasks.md`
+7. Logs to `logs/{timestamp}.log`
 
 ## Factory Prompt
 

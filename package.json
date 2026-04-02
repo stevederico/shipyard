@@ -1,6 +1,6 @@
 {
   "name": "shipyard",
-  "version": "0.10.0",
-  "description": "Autonomous code factory. Reads tasks from todos.md, ships them as PRs.",
+  "version": "0.11.0",
+  "description": "Autonomous code factory. Reads tasks from tasks.md, ships them as PRs.",
   "private": true
 }

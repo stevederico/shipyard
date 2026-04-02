@@ -1,11 +1,12 @@
 #!/bin/bash
 # factory.sh — minimal code factory
-# Reads next task from todos.md, lets Claude handle everything autonomously.
+# Reads next task from tasks.md, lets Claude handle everything autonomously.
 # Usage: bash factory.sh [--dry-run]
 
-TODOS="$HOME/todos.md"
+SHIPYARD="$HOME/Desktop/projects/shipyard"
+TASKS="$SHIPYARD/tasks.md"
 PROJECTS="$HOME/Desktop/projects"
-LOGDIR="$HOME/Desktop/projects/shipyard/logs"
+LOGDIR="$SHIPYARD/logs"
 DATE=$(date +"%m/%d/%y")
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
@@ -17,17 +18,27 @@ stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
 
 # ── 1/12 PICK ──────────────────────────────────────────────
 stage "1/12 PICK"
-log "Reading tasks from $TODOS"
-TASK=$(awk '/^## (WIP|Tasks)$/{found=1;next} /^## /{found=0} found && /^- /{print; exit}' "$TODOS" \
-  | sed 's/^- //')
+log "Reading tasks from $TASKS"
 
-if [ -z "$TASK" ]; then
-  log "No tasks found"
+if [ ! -f "$TASKS" ]; then
+  log "No tasks.md found at $TASKS"
   exit 0
 fi
 
-TASK_CLEAN=$(echo "$TASK" | sed 's/ \[[0-9]*\]//;s/ #[a-z]*//g')
-log "Task: $TASK_CLEAN"
+# First unchecked task: "- [ ] project: description"
+TASK_LINE=$(grep -n '^\- \[ \] ' "$TASKS" | head -1)
+
+if [ -z "$TASK_LINE" ]; then
+  log "No pending tasks"
+  exit 0
+fi
+
+TASK_LINENUM=$(echo "$TASK_LINE" | cut -d: -f1)
+TASK_RAW=$(echo "$TASK_LINE" | cut -d: -f2- | sed 's/^- \[ \] //')
+# Parse "project: description" format
+TASK_PROJECT=$(echo "$TASK_RAW" | cut -d: -f1 | xargs)
+TASK_DESC=$(echo "$TASK_RAW" | cut -d: -f2- | xargs)
+log "Task: $TASK_PROJECT — $TASK_DESC"
 
 if [ "$1" = "--dry-run" ]; then
   log "Dry run — stopping before execution"
@@ -36,18 +47,10 @@ fi
 
 # ── 2/12 ROUTE ─────────────────────────────────────────────
 stage "2/12 ROUTE"
-# Extract likely project name from task (first capitalized word or hyphenated name)
-PROJECT_DIR=""
-for candidate in $(echo "$TASK_CLEAN" | grep -oE '[A-Za-z][A-Za-z0-9_-]+' ); do
-  match=$(find "$PROJECTS" -maxdepth 1 -iname "$candidate" -type d 2>/dev/null | head -1)
-  if [ -n "$match" ]; then
-    PROJECT_DIR="$match"
-    break
-  fi
-done
+PROJECT_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_PROJECT" -type d 2>/dev/null | head -1)
 
 if [ -z "$PROJECT_DIR" ]; then
-  log "Could not find project for: $TASK_CLEAN"
+  log "Could not find project: $TASK_PROJECT"
   log "Available projects: $(ls "$PROJECTS" | head -20)"
   exit 1
 fi
@@ -62,12 +65,11 @@ git pull origin master 2>&1 | tee -a "$LOGFILE"
 
 # ── 4/12 PLAN ──────────────────────────────────────────────
 stage "4/12 PLAN"
+SUBTASK="$TASK_DESC"
 if [ -f "$PROJECT_DIR/todo.md" ]; then
-  SUBTASK=$(awk '/^- /{print; exit}' "$PROJECT_DIR/todo.md" | sed 's/^- //')
-  log "Found todo.md — subtask: $SUBTASK"
+  log "Found project todo.md for additional context"
 else
-  SUBTASK="$TASK_CLEAN"
-  log "No todo.md — using global task: $SUBTASK"
+  log "No project todo.md"
 fi
 
 if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
@@ -123,9 +125,7 @@ Steps:
 9. Commit the version bump
 10. Push the branch: git push origin $BRANCH
 11. Open a PR: gh pr create --base master
-12. Mark the subtask done in todo.md (remove the '- ' prefix)
-13. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
-14. Print FACTORY_REMAINING:N where N is the number of '- ' lines still in todo.md (0 if no todo.md)
+12. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
 " --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
 # ── 8/12 LINT (deterministic checks) ──────────────────────
@@ -183,26 +183,13 @@ fi
 # ── 11/12 UPDATE ───────────────────────────────────────────
 stage "11/12 UPDATE"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
-  REMAINING=$(grep -o "FACTORY_REMAINING:[0-9]*" "$LOGFILE" | tail -1 | cut -d: -f2)
-  log "Remaining subtasks: ${REMAINING:-unknown}"
+  # Mark task done: "- [ ]" → "- [x]" with date
+  sed -i '' "${TASK_LINENUM}s/- \[ \]/- [x]/" "$TASKS"
+  sed -i '' "${TASK_LINENUM}s/$/ ($DATE)/" "$TASKS"
+  log "Marked done: $TASK_PROJECT — $TASK_DESC"
 
-  if [ "$REMAINING" = "0" ]; then
-    log "All subtasks done — marking global task complete"
-    sed -i '' "/^- $(echo "$TASK" | sed 's/[\/&]/\\&/g')$/d" "$TODOS"
-
-    if grep -q "^## $DATE" "$TODOS"; then
-      sed -i '' "/^## $DATE$/a\\
-$TASK_CLEAN" "$TODOS"
-    else
-      sed -i '' "/^## Tasks$/i\\
-## $DATE\\
-$TASK_CLEAN\\
-" "$TODOS"
-    fi
-    log "Moved task to completed: $DATE"
-  else
-    log "Project has $REMAINING subtasks remaining — keeping in global todos"
-  fi
+  REMAINING=$(grep -c '^\- \[ \] ' "$TASKS" 2>/dev/null || echo 0)
+  log "Remaining tasks: $REMAINING"
 else
   log "Skipped — task failed"
 fi
