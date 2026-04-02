@@ -712,17 +712,8 @@ for line in sys.stdin:
     log "No dev/start/preview script found — skipping verification"
   fi
 
-  # Retry screenshot if none were taken
-  SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
-  if [ -z "$SCREENSHOTS" ] && [ -n "$DEV_URL" ]; then
-    log "No screenshots taken — retrying with basic screenshot"
-    agent-browser open "$DEV_URL" 2>/dev/null
-    agent-browser wait --load networkidle 2>/dev/null
-    agent-browser screenshot "$SCREENSHOT_DIR/fallback.png" 2>/dev/null
-    SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
-  fi
-
   # Attach screenshots to PR
+  SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
   if [ -n "$SCREENSHOTS" ] && [ -n "$PR_NUM" ]; then
     GH_OWNER=$(gh api user --jq '.login' 2>/dev/null)
 
@@ -744,9 +735,21 @@ for line in sys.stdin:
       --body "$(echo -e "$COMMENT")" 2>/dev/null
     log "Screenshots attached to PR #$PR_NUM"
   elif [ -n "$PR_NUM" ]; then
-    log "WARN: No screenshots captured — flagging PR"
-    gh pr comment "$PR_NUM" --repo "$(gh api user --jq '.login' 2>/dev/null)/${REPO_NAME}" \
-      --body "⚠ Shipyard could not capture verification screenshots for this PR." 2>/dev/null
+    # Determine why screenshots are missing
+    REASON="unknown"
+    if ! command -v agent-browser &>/dev/null; then
+      REASON="agent-browser is not installed"
+    elif [ -z "$DEV_CMD" ]; then
+      REASON="no dev/start/preview script found in package.json"
+    elif [ -z "$DEV_URL" ]; then
+      REASON="dev server did not start within 30s"
+    else
+      REASON="verify session ran but did not produce screenshots — check logs"
+    fi
+    log "WARN: No screenshots — $REASON"
+    GH_OWNER=$(gh api user --jq '.login' 2>/dev/null)
+    gh pr comment "$PR_NUM" --repo "${GH_OWNER}/${REPO_NAME}" \
+      --body "Screenshots missing: $REASON" 2>/dev/null
   fi
 fi
 
