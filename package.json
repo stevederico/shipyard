@@ -1,0 +1,6 @@
+{
+  "name": "shipyard",
+  "version": "0.9.0",
+  "description": "Autonomous code factory. Reads tasks from todos.md, ships them as PRs.",
+  "private": true
+}
