@@ -157,22 +157,13 @@ for pr in prs:
     SCREENSHOT_DIR="$LOGDIR/screenshots/pr-$PR_NUM"
     mkdir -p "$SCREENSHOT_DIR"
 
-    WORKTREE="$REPO_DIR/.worktrees/verify-pr-$PR_NUM"
-    rm -rf "$WORKTREE" 2>/dev/null
+    # Checkout branch directly (no worktree — need real DB, .env, etc.)
     cd "$REPO_DIR"
-    git worktree prune 2>/dev/null
-    git worktree add "$WORKTREE" "$BRANCH" 2>/dev/null
-
-    if [ ! -d "$WORKTREE" ]; then
+    git checkout "$BRANCH" 2>/dev/null
+    if [ $? -ne 0 ]; then
       echo "  Could not checkout $BRANCH — skipping"
       echo ""
       continue
-    fi
-
-    cd "$WORKTREE"
-    npm install --silent 2>/dev/null
-    if grep -q '"workspaces"' package.json 2>/dev/null; then
-      npm install --workspaces --silent 2>/dev/null
     fi
 
     DEV_LOG=$(mktemp)
@@ -190,8 +181,8 @@ for pr in prs:
     if [ -z "$DEV_URL" ]; then
       echo "  Dev server failed to start — skipping"
       kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
-      rm -rf "$WORKTREE" 2>/dev/null
-      git -C "$REPO_DIR" worktree prune 2>/dev/null
+      lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
+      git checkout "$BASE_BRANCH" 2>/dev/null
       echo ""
       continue
     fi
@@ -259,14 +250,14 @@ for line in sys.stdin:
     if [ -n "$SCREENSHOTS" ]; then
       GH_OWNER=$(echo "$REPO" | cut -d/ -f1)
 
-      cp "$SCREENSHOT_DIR"/*.png "$WORKTREE/" 2>/dev/null
-      cd "$WORKTREE"
+      cp "$SCREENSHOT_DIR"/*.png "$REPO_DIR/" 2>/dev/null
+      cd "$REPO_DIR"
       git add *.png 2>/dev/null
       git commit -m "Add verification screenshots" 2>/dev/null
       git push origin "$BRANCH" 2>/dev/null
 
       COMMENT="## Verification Screenshots\n"
-      for img in "$WORKTREE"/*.png; do
+      for img in "$REPO_DIR"/*.png; do
         IMG_NAME=$(basename "$img")
         COMMENT="${COMMENT}\n### ${IMG_NAME%.png}\n![${IMG_NAME}](https://github.com/${GH_OWNER}/${REPO_NAME}/blob/${BRANCH}/${IMG_NAME}?raw=true)\n"
       done
@@ -288,8 +279,7 @@ ${VERIFY_REASON:-no output from verify session}
     rm -f "$VERIFY_LOG"
 
     cd "$REPO_DIR"
-    rm -rf "$WORKTREE" 2>/dev/null
-    git worktree prune 2>/dev/null
+    git checkout "$BASE_BRANCH" 2>/dev/null
     echo ""
   done < "$PR_LIST"
   rm -f "$PR_LIST"
