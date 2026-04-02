@@ -15,7 +15,7 @@ LOGFILE="$LOGDIR/$TIMESTAMP.log"
 log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
 stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
 
-stage "PICK"
+stage "1/10 PICK"
 log "Reading tasks from $TODOS"
 TASK=$(awk '/^## (WIP|Tasks)$/{found=1;next} /^## /{found=0} found && /^- /{print; exit}' "$TODOS" \
   | sed 's/^- //')
@@ -34,7 +34,7 @@ if [ "$1" = "--dry-run" ]; then
   exit 0
 fi
 
-stage "CLAUDE SESSION"
+stage "2/10 ROUTE → 9/10 UPDATE (Claude session)"
 
 # Let Claude figure out the project, code it, test it, ship it
 claude -p "
@@ -43,17 +43,17 @@ You are running in factory mode. Complete this task autonomously.
 TASK: $TASK_CLEAN
 
 Print a stage header before each step using this exact format:
-  [STAGE: NAME] description
+  [STAGE N/10: NAME] description
 
 The stages are:
-  [STAGE: ROUTE] Finding the project directory
-  [STAGE: PULL] Git pulling latest
-  [STAGE: PLAN] Reading todo.md and CLAUDE.md, selecting subtask
-  [STAGE: BRANCH] Creating feature branch
-  [STAGE: CODE] Implementing the task (narrate what you are building)
-  [STAGE: TEST] Running tests
-  [STAGE: SHIP] Committing, pushing, opening PR
-  [STAGE: UPDATE] Marking subtask done in project todo.md
+  [STAGE 2/10: ROUTE] Finding the project directory
+  [STAGE 3/10: PULL] Git pulling latest
+  [STAGE 4/10: PLAN] Reading todo.md and CLAUDE.md, selecting subtask
+  [STAGE 5/10: BRANCH] Creating feature branch
+  [STAGE 6/10: CODE] Implementing the task (narrate what you are building)
+  [STAGE 7/10: TEST] Running tests
+  [STAGE 8/10: SHIP] Committing, pushing, opening PR
+  [STAGE 9/10: UPDATE] Marking subtask done in project todo.md
 
 Steps:
 1. Find which project in $PROJECTS this task belongs to (ls the directory, match by name)
@@ -71,7 +71,7 @@ Steps:
 13. Also print FACTORY_REMAINING:N where N is the number of '- ' lines still in todo.md (0 if no todo.md)
 " --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
-stage "DONE"
+stage "10/10 DONE"
 
 # Check result from log
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
