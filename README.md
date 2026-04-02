@@ -73,7 +73,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | 1/12 PICK | deterministic | Parse `tasks.md`, take first `- [ ]` |
 | 2/12 ROUTE | deterministic | Find project directory |
 | 3/12 PULL | deterministic | git pull |
-| 4/12 PLAN | deterministic | Read project context (CLAUDE.md, todo.md) |
+| 4/12 PLAN | deterministic | Read project context (CLAUDE.md) |
 | 5/12 BRANCH | deterministic | Create feature branch, save pre-state |
 | 6/12 CODE | agentic | Claude implements (with coding standards in prompt) |
 | 7/12 TEST | agentic | Claude runs tests (inside session) |

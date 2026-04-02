@@ -19,7 +19,7 @@ Tasks in `tasks.md`:
 
 1. Pick first `- [ ]` task from `tasks.md`
 2. Route to project directory via `project:` prefix
-3. Git pull, read project's CLAUDE.md and todo.md for context
+3. Git pull, read project's CLAUDE.md for context
 4. Claude codes, tests, commits, pushes branch, opens PR
 5. Deterministic lint checks: no secrets staged, changelog updated, version bumped
 6. Task marked `- [x]` with date in `tasks.md`

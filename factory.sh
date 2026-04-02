@@ -66,12 +66,6 @@ git pull origin master 2>&1 | tee -a "$LOGFILE"
 # ── 4/12 PLAN ──────────────────────────────────────────────
 stage "4/12 PLAN"
 SUBTASK="$TASK_DESC"
-if [ -f "$PROJECT_DIR/todo.md" ]; then
-  log "Found project todo.md for additional context"
-else
-  log "No project todo.md"
-fi
-
 if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
   log "Project CLAUDE.md found — will be loaded from working directory"
 else
@@ -114,18 +108,17 @@ Coding standards (enforce these regardless of project CLAUDE.md):
 - Umami analytics: add data-umami-event on interactive elements if analytics is wired up
 
 Steps:
-1. Read todo.md if it exists for full context
-2. Implement the subtask
-3. Run tests if they exist (deno run test)
-4. If tests fail, fix and re-run (max 3 attempts)
-5. Stage only the files you modified (never git add . or git add -A)
-6. Commit with a descriptive message (no AI attribution, no Co-Authored-By)
-7. Update CHANGELOG.md (insert above previous, no dashes, 3 words max, present tense)
-8. Bump version in package.json if it exists (minor bump)
-9. Commit the version bump
-10. Push the branch: git push origin $BRANCH
-11. Open a PR: gh pr create --base master
-12. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
+1. Implement the subtask
+2. Run tests if they exist (deno run test)
+3. If tests fail, fix and re-run (max 3 attempts)
+4. Stage only the files you modified (never git add . or git add -A)
+5. Commit with a descriptive message (no AI attribution, no Co-Authored-By)
+6. Update CHANGELOG.md (insert above previous, no dashes, 3 words max, present tense)
+7. Bump version in package.json if it exists (minor bump)
+8. Commit the version bump
+9. Push the branch: git push origin $BRANCH
+10. Open a PR: gh pr create --base master
+11. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
 " --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
 # ── 8/12 LINT (deterministic checks) ──────────────────────
