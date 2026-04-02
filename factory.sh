@@ -16,6 +16,8 @@ mkdir -p "$LOGDIR" "$DONE_DIR" "$LOCK_DIR" "$STATUS_DIR"
 AGENT_ID="${SHIPYARD_AGENT_ID:-0}"
 LOGFILE="$LOGDIR/$TIMESTAMP-w$AGENT_ID.log"
 WORKTREE_DIR=""
+# Force headless browser for all agent-browser calls
+export AGENT_BROWSER_HEADED=""
 
 if [ "$AGENT_ID" = "0" ]; then
   log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
