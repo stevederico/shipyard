@@ -1,29 +1,29 @@
 # Shipyard
 
-Autonomous code factory that reads tasks from `tasks.md` and ships them as PRs.
+Autonomous code factory that reads task files from `tasks/` and ships them as PRs.
 
 ## Structure
 
 - `factory.sh` — 12-stage factory pipeline. Deterministic stages interleaved with agentic Claude sessions.
-- `tasks.md` — task queue. Self-contained, not coupled to any external todo system.
+- `tasks/` — task queue. One markdown file per task. Completed tasks move to `tasks/done/`.
 - `logs/` — timestamped logs per run (gitignored)
 
 ## Task Format
 
-Tasks in `tasks.md`:
-- `- [ ] project: description` — pending task targeting an existing project directory.
-- `- [ ] description` — pending task with no project. Creates a new project (name slugified from description).
-- `- [x] description (MM/DD/YY)` — completed task with date.
-- First unchecked task runs next (file order).
+Each file in `tasks/` is a task. The filename is the task name, the body is the prompt.
+
+- Optional `project:` in YAML frontmatter routes to an existing project directory.
+- No frontmatter = new project (name slugified from filename).
+- Files run in alphabetical order.
 
 ## Factory Flow
 
-1. Pick first `- [ ]` task from `tasks.md`
+1. Pick first `.md` file from `tasks/`
 2. Route to existing project or create a new one
 3. Git pull, read project's CLAUDE.md for context
 4. Claude codes, tests, commits, pushes branch, opens PR
 5. Deterministic lint checks: no secrets staged, changelog updated, version bumped
-6. Task marked `- [x]` with date in `tasks.md`
+6. Task file moved to `tasks/done/`
 7. Logs to `logs/{timestamp}.log`
 
 ## Factory Prompt

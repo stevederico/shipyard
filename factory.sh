@@ -1,16 +1,17 @@
 #!/bin/bash
 # factory.sh — minimal code factory
-# Reads next task from tasks.md, lets Claude handle everything autonomously.
+# Reads next task file from tasks/, lets Claude handle everything autonomously.
 # Usage: bash factory.sh [--dry-run]
 
 SHIPYARD="${SHIPYARD_DIR:-$(cd "$(dirname "$0")" && pwd)}"
-TASKS="$SHIPYARD/tasks.md"
+TASK_DIR="$SHIPYARD/tasks"
+DONE_DIR="$TASK_DIR/done"
 PROJECTS="${SHIPYARD_PROJECTS:-$(dirname "$SHIPYARD")}"
 LOGDIR="$SHIPYARD/logs"
 DATE=$(date +"%m/%d/%y")
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
-mkdir -p "$LOGDIR"
+mkdir -p "$LOGDIR" "$DONE_DIR"
 LOGFILE="$LOGDIR/$TIMESTAMP.log"
 
 log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
@@ -18,42 +19,45 @@ stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
 
 # ── 1/12 PICK ──────────────────────────────────────────────
 stage "1/12 PICK"
-log "Reading tasks from $TASKS"
+log "Reading tasks from $TASK_DIR"
 
-if [ ! -f "$TASKS" ]; then
-  log "No tasks.md found at $TASKS"
-  exit 0
-fi
+TASK_FILE=$(find "$TASK_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort | head -1)
 
-# First unchecked task: "- [ ] project: description" or "- [ ] description"
-TASK_LINE=$(grep -n '^\- \[ \] ' "$TASKS" | head -1)
-
-if [ -z "$TASK_LINE" ]; then
+if [ -z "$TASK_FILE" ]; then
   log "No pending tasks"
   exit 0
 fi
 
-TASK_LINENUM=$(echo "$TASK_LINE" | cut -d: -f1)
-TASK_RAW=$(echo "$TASK_LINE" | cut -d: -f2- | sed 's/^- \[ \] //')
+TASK_NAME=$(basename "$TASK_FILE" .md)
+TASK_BODY=$(cat "$TASK_FILE")
 
-# Parse format: "project: description" or just "description"
-if echo "$TASK_RAW" | grep -q ':'; then
-  TASK_PROJECT=$(echo "$TASK_RAW" | cut -d: -f1 | xargs)
-  TASK_DESC=$(echo "$TASK_RAW" | cut -d: -f2- | xargs)
+# Parse optional frontmatter for project field
+TASK_PROJECT=""
+IS_NEW_PROJECT=false
+if echo "$TASK_BODY" | head -1 | grep -q '^---$'; then
+  TASK_PROJECT=$(echo "$TASK_BODY" | sed -n '/^---$/,/^---$/p' | grep '^project:' | sed 's/^project: *//')
+  # Strip frontmatter from body to get the prompt
+  TASK_PROMPT=$(echo "$TASK_BODY" | sed '1,/^---$/!d; 1,/^---$/d' | sed '1,/^---$/d')
+  # If sed didn't strip cleanly, try awk
+  if [ -z "$TASK_PROMPT" ]; then
+    TASK_PROMPT=$(echo "$TASK_BODY" | awk 'BEGIN{n=0} /^---$/{n++;next} n>=2{print}')
+  fi
 else
-  TASK_PROJECT=""
-  TASK_DESC=$(echo "$TASK_RAW" | xargs)
+  TASK_PROMPT="$TASK_BODY"
 fi
-log "Task: ${TASK_PROJECT:-(new project)} — $TASK_DESC"
+
+log "Task: $TASK_NAME"
+log "Project: ${TASK_PROJECT:-(new project)}"
 
 if [ "$1" = "--dry-run" ]; then
   log "Dry run — stopping before execution"
+  log "Prompt preview:"
+  echo "$TASK_PROMPT" | head -5 | tee -a "$LOGFILE"
   exit 0
 fi
 
 # ── 2/12 ROUTE ─────────────────────────────────────────────
 stage "2/12 ROUTE"
-IS_NEW_PROJECT=false
 
 if [ -n "$TASK_PROJECT" ]; then
   PROJECT_DIR=$(find "$PROJECTS" -maxdepth 1 -iname "$TASK_PROJECT" -type d 2>/dev/null | head -1)
@@ -63,12 +67,8 @@ if [ -n "$TASK_PROJECT" ]; then
     exit 1
   fi
 else
-  # Slugify description into a project name
-  PROJECT_NAME=$(echo "$TASK_DESC" | tr '[:upper:]' '[:lower:]' \
-    | sed 's/[^a-z0-9 ]//g' \
-    | sed 's/^add //' | sed 's/^create //' | sed 's/^build //' | sed 's/^make //' \
-    | sed 's/^a //' | sed 's/^an //' | sed 's/^the //' \
-    | xargs | tr ' ' '-')
+  # Slugify task name into a project name
+  PROJECT_NAME=$(echo "$TASK_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
   PROJECT_DIR="$PROJECTS/$PROJECT_NAME"
   mkdir -p "$PROJECT_DIR"
   cd "$PROJECT_DIR" && git init 2>&1 | tee -a "$LOGFILE"
@@ -90,7 +90,6 @@ fi
 
 # ── 4/12 PLAN ──────────────────────────────────────────────
 stage "4/12 PLAN"
-SUBTASK="$TASK_DESC"
 if [ -f "$PROJECT_DIR/CLAUDE.md" ]; then
   log "Project CLAUDE.md found — will be loaded from working directory"
 else
@@ -116,11 +115,14 @@ fi
 # ── 6/12 CODE + 7/12 TEST (Claude session) ────────────────
 stage "6/12 CODE (Claude session)"
 claude -p "
-You are running in factory mode. Complete this subtask autonomously.
+You are running in factory mode. Complete this task autonomously.
 
-SUBTASK: $SUBTASK
 PROJECT: $PROJECT_NAME
 NEW_PROJECT: $IS_NEW_PROJECT
+
+--- TASK ---
+$TASK_PROMPT
+--- END TASK ---
 
 Print a stage header before each step:
   [STAGE 6/12: CODE] what you are building
@@ -139,7 +141,7 @@ Coding standards (enforce these regardless of project CLAUDE.md):
 
 Steps:
 1. If NEW_PROJECT is true, scaffold the project from scratch (create README, package.json, etc.)
-2. Implement the subtask
+2. Implement the task
 3. Run tests if they exist (deno run test)
 4. If tests fail, fix and re-run (max 3 attempts)
 5. Stage only the files you modified (never git add . or git add -A)
@@ -208,12 +210,10 @@ fi
 # ── 11/12 UPDATE ───────────────────────────────────────────
 stage "11/12 UPDATE"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
-  # Mark task done: "- [ ]" → "- [x]" with date
-  sed -i '' "${TASK_LINENUM}s/- \[ \]/- [x]/" "$TASKS"
-  sed -i '' "${TASK_LINENUM}s/$/ ($DATE)/" "$TASKS"
-  log "Marked done: $TASK_PROJECT — $TASK_DESC"
+  mv "$TASK_FILE" "$DONE_DIR/$(basename "$TASK_FILE")"
+  log "Moved to done: $TASK_NAME"
 
-  REMAINING=$(grep -c '^\- \[ \] ' "$TASKS" 2>/dev/null || echo 0)
+  REMAINING=$(find "$TASK_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | wc -l | xargs)
   log "Remaining tasks: $REMAINING"
 else
   log "Skipped — task failed"

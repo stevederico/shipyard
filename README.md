@@ -1,13 +1,13 @@
 # Shipyard
 
-Autonomous code factory. Reads tasks from `tasks.md`, ships them as PRs.
+Autonomous code factory. Reads task files from `tasks/`, ships them as PRs.
 
 ## How It Works
 
-1. Picks the next pending task from `tasks.md`
-2. Routes to the project directory, creates a feature branch
+1. Picks the next task file from `tasks/`
+2. Routes to the project directory (or creates a new one)
 3. Claude codes it, runs tests, commits, opens a PR
-4. Marks the task done with today's date
+4. Moves the task file to `tasks/done/`
 
 ## Setup
 
@@ -35,15 +35,27 @@ bash factory.sh --dry-run    # preview what it would pick
 
 ## Task Format
 
-Add tasks to `tasks.md`:
+Each task is a markdown file in `tasks/`. The filename becomes the task name. The file body is the full prompt sent to Claude — write as much or as little as you need.
+
+**Existing project** — add `project:` in frontmatter:
 
 ```markdown
-- [ ] my-app: Add dark mode toggle
-- [ ] another-app: Fix pagination bug
-- [ ] Build a weather dashboard
+---
+project: my-app
+---
+
+Add a dark mode toggle to the settings page. Should respect system
+preference by default. Use the existing ThemeProvider context.
 ```
 
-With a `project:` prefix, it routes to an existing project. Without one, it creates a new project (slugified from the description) with a GitHub repo.
+**New project** — omit `project:` and Shipyard creates one (named from the filename):
+
+```markdown
+Build a weather dashboard that shows 5-day forecast.
+Use OpenWeatherMap API. Include a search bar for city lookup.
+```
+
+Tasks run in alphabetical order by filename. Completed tasks move to `tasks/done/`.
 
 ## Schedule
 
@@ -56,14 +68,14 @@ crontab -e
 
 Based on patterns from Ramp Inspect and Stripe Minions:
 
-1. **Task queue** — self-contained `tasks.md` with optional `project:` prefix
+1. **Task queue** — `tasks/` folder, one markdown file per task
 2. **Task routing** — maps to existing project or creates a new one
 3. **Branch isolation** — agents work on feature branches, never master
 4. **Autonomous coding** — Claude runs non-interactively with full permissions
 5. **Test verification** — run tests, fail fast if broken
 6. **PR creation** — open a PR via `gh` CLI for every task
 7. **CI gate** — tests must pass before merge (iterate-pr pattern)
-8. **Task completion** — mark task done in `tasks.md` with date
+8. **Task completion** — move task file to `tasks/done/`
 9. **Logging** — timestamped logs per run for debugging
 10. **Scheduling** — cron or trigger to run without you
 
@@ -71,8 +83,8 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 
 | Stage | Type | What |
 |-------|------|------|
-| 1/12 PICK | deterministic | Parse `tasks.md`, take first `- [ ]` |
-| 2/12 ROUTE | deterministic | Find project directory |
+| 1/12 PICK | deterministic | Take first `.md` file from `tasks/` |
+| 2/12 ROUTE | deterministic | Find project directory or create new one |
 | 3/12 PULL | deterministic | git pull |
 | 4/12 PLAN | deterministic | Read project context (CLAUDE.md) |
 | 5/12 BRANCH | deterministic | Create feature branch, save pre-state |
@@ -81,7 +93,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | 8/12 LINT | deterministic | Shell checks: no secrets, changelog, version bump |
 | 9/12 FIX | agentic | Claude fixes lint failures (max 3 attempts) |
 | 10/12 SHIP | deterministic | Confirm PR was opened |
-| 11/12 UPDATE | deterministic | Mark task done in `tasks.md` |
+| 11/12 UPDATE | deterministic | Move task file to `tasks/done/` |
 | 12/12 DONE | deterministic | Report result, return to master |
 
 ## Requirements
