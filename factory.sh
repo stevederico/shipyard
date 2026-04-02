@@ -88,8 +88,9 @@ fi
 # ── VERIFY: screenshot all open PRs for a repo ───────────
 if [ "$1" = "--verify" ]; then
   REPO="$2"
+  PR_FILTER="$3"
   if [ -z "$REPO" ]; then
-    echo "Usage: bash factory.sh --verify owner/repo"
+    echo "Usage: bash factory.sh --verify owner/repo [pr-number]"
     exit 1
   fi
 
@@ -128,18 +129,25 @@ for cmd in ['start', 'dev', 'preview']:
     exit 1
   fi
 
-  PRS=$(gh pr list --repo "$REPO" --state open --json number,title,headRefName --limit 50 2>/dev/null)
-  PR_COUNT=$(echo "$PRS" | python3 -c "import json,sys; print(len(json.loads(sys.stdin.read())))")
-  echo "Found $PR_COUNT open PRs"
-  echo ""
-
   PR_LIST=$(mktemp)
-  echo "$PRS" | python3 -c "
+  if [ -n "$PR_FILTER" ]; then
+    # Single PR
+    gh pr view "$PR_FILTER" --repo "$REPO" --json number,title,headRefName 2>/dev/null | \
+      python3 -c "import json,sys; pr=json.loads(sys.stdin.read()); print(f\"{pr['number']}|{pr['headRefName']}|{pr['title']}\")" > "$PR_LIST"
+    echo "Verifying PR #$PR_FILTER"
+  else
+    # All open PRs
+    PRS=$(gh pr list --repo "$REPO" --state open --json number,title,headRefName --limit 50 2>/dev/null)
+    PR_COUNT=$(echo "$PRS" | python3 -c "import json,sys; print(len(json.loads(sys.stdin.read())))")
+    echo "Found $PR_COUNT open PRs"
+    echo "$PRS" | python3 -c "
 import json, sys
 prs = json.loads(sys.stdin.read())
 for pr in prs:
     print(f\"{pr['number']}|{pr['headRefName']}|{pr['title']}\")
 " > "$PR_LIST"
+  fi
+  echo ""
 
   while IFS='|' read -r PR_NUM BRANCH TITLE; do
     echo "━━━ PR #$PR_NUM: $TITLE ━━━"
