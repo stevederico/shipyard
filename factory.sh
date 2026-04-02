@@ -549,6 +549,11 @@ for cmd in ['dev', 'start', 'preview']:
   fi
 
   if [ -n "$DEV_CMD" ]; then
+    # Install deps in worktree (symlinks from main repo may be broken)
+    if [ -n "$WORKTREE_DIR" ] && [ -f "package.json" ]; then
+      log "Installing dependencies in worktree..."
+      npm install --silent 2>/dev/null
+    fi
     log "Starting dev server: npm run $DEV_CMD"
     DEV_LOG=$(mktemp)
     npm run "$DEV_CMD" > "$DEV_LOG" 2>&1 &
