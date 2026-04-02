@@ -29,8 +29,9 @@ export SHIPYARD_PROJECTS="$HOME/code"
 ## Usage
 
 ```bash
-bash factory.sh              # run the factory
-bash factory.sh --dry-run    # preview what it would pick
+bash factory.sh                        # run the factory
+bash factory.sh --dry-run              # preview what it would pick
+bash factory.sh --issues owner/repo    # pull GitHub issues into tasks/
 ```
 
 ## Task Format
@@ -65,6 +66,16 @@ tasks/
 ```
 
 Completed tasks move to `tasks/done/`.
+
+## GitHub Issues
+
+Pull issues from any repo into your task queue:
+
+```bash
+bash factory.sh --issues owner/repo
+```
+
+This fetches open issues labeled `shipyard` and creates task files from them. After the factory completes a task, it comments the PR link on the issue and closes it.
 
 ## Schedule
 

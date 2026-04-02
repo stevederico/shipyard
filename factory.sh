@@ -1,7 +1,7 @@
 #!/bin/bash
 # factory.sh — minimal code factory
 # Reads next task file from tasks/, lets Claude handle everything autonomously.
-# Usage: bash factory.sh [--dry-run]
+# Usage: bash factory.sh [--dry-run] [--issues owner/repo]
 
 SHIPYARD="${SHIPYARD_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 TASK_DIR="$SHIPYARD/tasks"
@@ -16,6 +16,40 @@ LOGFILE="$LOGDIR/$TIMESTAMP.log"
 
 log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
 stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
+
+# ── ISSUES: pull GitHub issues into tasks/ ─────────────────
+if [ "$1" = "--issues" ]; then
+  REPO="$2"
+  if [ -z "$REPO" ]; then
+    echo "Usage: bash factory.sh --issues owner/repo"
+    exit 1
+  fi
+
+  log "Syncing issues from $REPO (label: shipyard)"
+  PROJECT_NAME=$(echo "$REPO" | cut -d/ -f2)
+
+  gh issue list --repo "$REPO" --label "shipyard" --state open --json number,title,body --limit 50 2>/dev/null | \
+    python3 -c "
+import json, sys, re
+
+issues = json.loads(sys.stdin.read())
+for issue in issues:
+    num = issue['number']
+    title = issue['title']
+    body = issue.get('body', '') or ''
+    slug = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
+    filename = f'tasks/{num:03d}-{slug}.md'
+
+    with open(filename, 'w') as f:
+        f.write(f'---\nproject: $PROJECT_NAME\nissue: $REPO#{num}\n---\n\n# {title}\n\n{body}\n')
+
+    print(f'  Created {filename}')
+
+if not issues:
+    print('  No issues with label \"shipyard\" found')
+"
+  exit 0
+fi
 
 # ── 1/12 PICK ──────────────────────────────────────────────
 stage "1/12 PICK"
@@ -210,6 +244,17 @@ fi
 # ── 11/12 UPDATE ───────────────────────────────────────────
 stage "11/12 UPDATE"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
+  # If task came from a GitHub issue, comment the PR link and close it
+  ISSUE_REF=$(echo "$TASK_BODY" | sed -n '/^---$/,/^---$/p' | grep '^issue:' | sed 's/^issue: *//')
+  if [ -n "$ISSUE_REF" ]; then
+    ISSUE_REPO=$(echo "$ISSUE_REF" | cut -d'#' -f1)
+    ISSUE_NUM=$(echo "$ISSUE_REF" | cut -d'#' -f2)
+    PR_URL=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1)
+    gh issue comment "$ISSUE_NUM" --repo "$ISSUE_REPO" --body "Shipped in ${PR_URL:-branch $BRANCH}" 2>&1 | tee -a "$LOGFILE"
+    gh issue close "$ISSUE_NUM" --repo "$ISSUE_REPO" 2>&1 | tee -a "$LOGFILE"
+    log "Closed issue: $ISSUE_REF"
+  fi
+
   mv "$TASK_FILE" "$DONE_DIR/$(basename "$TASK_FILE")"
   log "Moved to done: $TASK_NAME"
 
