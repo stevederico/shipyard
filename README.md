@@ -112,7 +112,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 4. **Autonomous coding** — Claude runs non-interactively with full permissions
 5. **Test verification** — run tests, fail fast if broken
 6. **PR creation** — open a PR via `gh` CLI for every task
-7. **CI gate** — tests must pass before merge (iterate-pr pattern)
+7. **CI gate** — auto-generates GitHub Actions workflow, watches CI, fixes failures
 8. **Task completion** — move task file to `tasks/done/`
 9. **Visual verification** — targeted screenshots of changes via agent-browser
 10. **Streaming output** — real-time Claude session output via stream-json
@@ -127,12 +127,13 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | PICK | deterministic | Take first `.md` file from `tasks/` |
 | ROUTE | deterministic | Find repo locally, clone from GitHub, or create new |
 | PULL | deterministic | Detect default branch, git pull |
-| BRANCH | deterministic | Create feature branch, save pre-state |
+| BRANCH | deterministic | Create feature branch, generate CI workflow if missing |
 | CODE | agentic | Claude implements (standards.md + workflow.md) |
 | TEST | agentic | Claude runs tests (inside same session) |
 | LINT | deterministic | Shell checks: no secrets, test failures |
 | FIX | agentic | Claude fixes lint failures (max 2 attempts) |
 | SHIP | deterministic | Confirm PR was opened |
+| CI | deterministic + agentic | Watch GitHub Actions, fix failures (max 2 attempts) |
 | VERIFY | agentic | Claude reads diff, screenshots affected pages via agent-browser |
 | UPDATE | deterministic | Move task file to `tasks/done/`, close GitHub issue |
 | DONE | deterministic | Report result, return to default branch |

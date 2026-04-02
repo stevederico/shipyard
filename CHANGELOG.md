@@ -1,5 +1,8 @@
 # Changelog
 
+0.24.0
+  CI workflow generator
+  CI gate with fix loop
 0.23.0
   Start backend before frontend
   Add versioning rules workflow

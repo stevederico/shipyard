@@ -574,6 +574,61 @@ if [ "$IS_NEW_REPO" = false ] && [ "$DRY_RUN" = false ]; then
 fi
 log "Branch: $BRANCH"
 
+# ── CI: generate GitHub Actions workflow if missing ───────
+if [ "$IS_NEW_REPO" = false ] && [ ! -d "$REPO_DIR/.github/workflows" ] && [ -f "$REPO_DIR/package.json" ]; then
+  log "No CI workflow found — generating .github/workflows/ci.yml"
+  mkdir -p "$REPO_DIR/.github/workflows"
+  # Detect runtime and scripts
+  CI_RUNTIME="node"
+  CI_NODE_VERSION="22"
+  if [ -f "$REPO_DIR/deno.json" ] || [ -f "$REPO_DIR/deno.jsonc" ]; then
+    CI_RUNTIME="deno"
+  fi
+  HAS_BUILD=$(python3 -c "import json; s=json.load(open('$REPO_DIR/package.json')).get('scripts',{}); print('yes' if 'build' in s else '')" 2>/dev/null)
+  HAS_TEST=$(python3 -c "import json; s=json.load(open('$REPO_DIR/package.json')).get('scripts',{}); print('yes' if 'test' in s else '')" 2>/dev/null)
+
+  if [ "$CI_RUNTIME" = "deno" ]; then
+    cat > "$REPO_DIR/.github/workflows/ci.yml" <<'CIEOF'
+name: CI
+on: [pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+      - run: deno install
+CIEOF
+    if [ -n "$HAS_BUILD" ]; then
+      echo "      - run: deno run build" >> "$REPO_DIR/.github/workflows/ci.yml"
+    fi
+    if [ -n "$HAS_TEST" ]; then
+      echo "      - run: deno run test" >> "$REPO_DIR/.github/workflows/ci.yml"
+    fi
+  else
+    cat > "$REPO_DIR/.github/workflows/ci.yml" <<CIEOF
+name: CI
+on: [pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: $CI_NODE_VERSION
+      - run: npm install
+CIEOF
+    if [ -n "$HAS_BUILD" ]; then
+      echo "      - run: npm run build" >> "$REPO_DIR/.github/workflows/ci.yml"
+    fi
+    if [ -n "$HAS_TEST" ]; then
+      echo "      - run: npm test" >> "$REPO_DIR/.github/workflows/ci.yml"
+    fi
+  fi
+  log "Generated CI workflow ($CI_RUNTIME)"
+fi
+
 # Save pre-code state for lint checks
 PRE_VERSION=""
 if [ -f "$REPO_DIR/package.json" ]; then
@@ -834,6 +889,122 @@ if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "PR shipped on branch $BRANCH"
 else
   log "No PR — Claude reported failure"
+fi
+
+# ── CI GATE (watch GitHub Actions, fix failures) ─────────
+if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && [ -d "$REPO_DIR/.github/workflows" ]; then
+  stage "CI"
+  update_status "$TASK_NAME — watching CI"
+  PR_NUM_CI=$(grep -o 'https://github.com/[^ ]*pull/[0-9]*' "$LOGFILE" | tail -1 | grep -o '[0-9]*$')
+  GH_OWNER_CI=$(gh api user --jq '.login' 2>/dev/null)
+
+  if [ -n "$PR_NUM_CI" ]; then
+    # Wait for CI run to appear (max 30s)
+    CI_RUN_ID=""
+    for i in $(seq 1 15); do
+      CI_RUN_ID=$(gh run list --repo "${GH_OWNER_CI}/${REPO_NAME}" --branch "$BRANCH" \
+        --json databaseId,status --limit 1 2>/dev/null | \
+        python3 -c "import json,sys; runs=json.loads(sys.stdin.read()); print(runs[0]['databaseId'] if runs else '')" 2>/dev/null)
+      if [ -n "$CI_RUN_ID" ]; then break; fi
+      sleep 2
+    done
+
+    if [ -n "$CI_RUN_ID" ]; then
+      log "Watching CI run #$CI_RUN_ID..."
+      gh run watch "$CI_RUN_ID" --repo "${GH_OWNER_CI}/${REPO_NAME}" 2>&1 | ptee
+
+      CI_CONCLUSION=$(gh run view "$CI_RUN_ID" --repo "${GH_OWNER_CI}/${REPO_NAME}" --json conclusion --jq '.conclusion' 2>/dev/null)
+      log "CI result: $CI_CONCLUSION"
+
+      # If CI failed, try to fix (max 2 attempts)
+      CI_FIX_ATTEMPT=0
+      CI_MAX_ATTEMPTS=2
+      while [ "$CI_CONCLUSION" = "failure" ] && [ "$CI_FIX_ATTEMPT" -lt "$CI_MAX_ATTEMPTS" ]; do
+        CI_FIX_ATTEMPT=$((CI_FIX_ATTEMPT + 1))
+        log "CI fix attempt $CI_FIX_ATTEMPT/$CI_MAX_ATTEMPTS"
+
+        CI_FAILURES=$(gh run view "$CI_RUN_ID" --repo "${GH_OWNER_CI}/${REPO_NAME}" --log-failed 2>/dev/null | tail -50)
+        CI_FIX_PROMPT_FILE=$(mktemp)
+        cat > "$CI_FIX_PROMPT_FILE" <<CI_FIX_EOF
+GitHub Actions CI failed. Fix the issues and push.
+
+PROJECT: $REPO_NAME
+BRANCH: $BRANCH
+
+CI FAILURE LOG:
+$CI_FAILURES
+
+Log format: plain text, no markdown, no ** or ## or [].
+
+Steps:
+1. Read the failure log above and identify the issue
+2. Fix the code
+3. Stage and commit: git add <files> && git commit -m "Fix CI: <description>"
+4. Push: git push origin $BRANCH
+5. Print CI_FIX_DONE when finished
+CI_FIX_EOF
+
+        claude -p "$(cat "$CI_FIX_PROMPT_FILE")" --dangerously-skip-permissions \
+          --model sonnet --output-format stream-json 2>/dev/null | \
+          python3 -uc "
+import sys, json, time, signal
+signal.alarm(120)
+signal.signal(signal.SIGALRM, lambda *_: (print('timed out', flush=True), sys.exit(0)))
+seen = set()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try: event = json.loads(line)
+    except json.JSONDecodeError: continue
+    etype = event.get('type', '')
+    if etype == 'assistant':
+        uid = event.get('uuid', '')
+        if uid in seen: continue
+        seen.add(uid)
+        for block in event.get('message', {}).get('content', []):
+            bt = block.get('type', '')
+            if bt == 'text':
+                print(block['text'], flush=True)
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else: print(f'  Tool: {name}'.rstrip(), flush=True)
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text: print(text, flush=True)
+" 2>/dev/null | ptee
+        rm -f "$CI_FIX_PROMPT_FILE"
+
+        # Wait for new CI run
+        sleep 5
+        CI_RUN_ID=$(gh run list --repo "${GH_OWNER_CI}/${REPO_NAME}" --branch "$BRANCH" \
+          --json databaseId --limit 1 --jq '.[0].databaseId' 2>/dev/null)
+        if [ -n "$CI_RUN_ID" ]; then
+          log "Watching CI run #$CI_RUN_ID..."
+          gh run watch "$CI_RUN_ID" --repo "${GH_OWNER_CI}/${REPO_NAME}" 2>&1 | ptee
+          CI_CONCLUSION=$(gh run view "$CI_RUN_ID" --repo "${GH_OWNER_CI}/${REPO_NAME}" --json conclusion --jq '.conclusion' 2>/dev/null)
+          log "CI result: $CI_CONCLUSION"
+        else
+          log "No new CI run found"
+          break
+        fi
+      done
+
+      if [ "$CI_CONCLUSION" = "success" ]; then
+        log "CI passed"
+      elif [ "$CI_CONCLUSION" = "failure" ]; then
+        log "CI still failing after $CI_MAX_ATTEMPTS fix attempts"
+      fi
+    else
+      log "No CI run found — skipping CI gate"
+    fi
+  fi
 fi
 
 # ── VERIFY (self-verification loop) ───────────────────────

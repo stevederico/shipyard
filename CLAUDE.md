@@ -23,11 +23,13 @@ Each file in `tasks/` is a task. The filename is the task name, the body is the 
 1. Pick first `.md` file from `tasks/`
 2. Route to repo (local → GitHub clone → create new)
 3. Detect default branch (`main`/`master`), git pull
-4. Claude codes, tests, follows workflow.md (commit, push, PR) — output streams in real time
-5. Deterministic lint checks: no secrets, test failures
-6. Verify: start dev server, Claude reads diff and screenshots affected pages via agent-browser
-7. Task file moved to `tasks/done/`
-8. Logs to `logs/{timestamp}.log`
+4. Generate CI workflow if repo has none (`.github/workflows/ci.yml`)
+5. Claude codes, tests, follows workflow.md (commit, push, PR) — output streams in real time
+6. Deterministic lint checks: no secrets, test failures, changelog, version bump
+7. Ship PR, watch GitHub Actions CI — fix failures (max 2 attempts)
+8. Verify: start dev server + backend, Claude screenshots affected pages via agent-browser
+9. Task file moved to `tasks/done/`
+10. Logs to `logs/{timestamp}.log`
 
 ## Configuration
 
