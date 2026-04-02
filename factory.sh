@@ -295,7 +295,7 @@ CODE_START=$(date +%s)
 # Write prompt to temp file to avoid quoting issues with script
 PROMPT_FILE=$(mktemp)
 cat > "$PROMPT_FILE" <<PROMPT_EOF
-You are running in factory mode. Complete this task autonomously.
+You are running in shipyard mode. Complete this task autonomously.
 
 REPO: $REPO_NAME
 NEW_REPO: $IS_NEW_REPO
@@ -304,9 +304,10 @@ NEW_REPO: $IS_NEW_REPO
 $TASK_PROMPT
 --- END TASK ---
 
-Print a stage header before each step:
-  [CODE] what you are building
-  [TEST] running tests
+Log format rules (follow exactly):
+- Stage headers: ━━━ STAGE_NAME ━━━ (e.g. ━━━ CODE ━━━, ━━━ TEST ━━━)
+- Progress: plain text, no markdown, no ** or ## or []
+- Results: plain text summary of what changed
 
 Coding standards (enforce these regardless of project CLAUDE.md):
 $(cat "$SHIPYARD/standards.md")
@@ -416,6 +417,8 @@ BRANCH: $BRANCH
 LINT FAILURES:
 $(echo -e "$LINT_FAILURES")
 
+Log format: plain text, no markdown, no ** or ## or []. Use ━━━ STAGE ━━━ for headers.
+
 Steps:
 1. Fix each issue listed above
 2. If secrets are committed, remove them and add to .gitignore
@@ -433,7 +436,7 @@ LINT_FIX_EOF
 import sys, json, time, signal
 
 signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('[FIX] timed out', flush=True), sys.exit(0)))
+signal.signal(signal.SIGALRM, lambda *_: (print('timed out', flush=True), sys.exit(0)))
 
 seen = set()
 last_log = time.time()
@@ -461,7 +464,7 @@ for line in sys.stdin:
             print(text, flush=True)
     now = time.time()
     if now - last_log > 15:
-        print('[FIX] still working...', flush=True)
+        print('still working...', flush=True)
         last_log = now
 " 2>/dev/null | ptee
     rm -f "$FIX_PROMPT_FILE"
@@ -563,6 +566,8 @@ $DIFF
 
 SCREENSHOT DIR: $SCREENSHOT_DIR
 
+Log format: plain text, no markdown, no ** or ## or []. Use ━━━ STAGE ━━━ for headers.
+
 Your job is to verify the implementation matches the task requirements. Do this:
 
 1. Read the diff to understand what changed and which pages/routes are affected
@@ -577,7 +582,7 @@ Your job is to verify the implementation matches the task requirements. Do this:
 
 6. Print your verdict:
    VERIFY_PASS — if the implementation matches the requirements and works correctly
-   VERIFY_FAIL: <reason> — if something is wrong, describe what needs fixing
+   VERIFY_FAIL: reason — if something is wrong, describe what needs fixing
 
 Max 2 minutes. Focus on what the task asked for, not unrelated issues.
 VERIFY_EOF
@@ -620,7 +625,7 @@ for line in sys.stdin:
             output.append(text)
     now = time.time()
     if now - last_log > 15:
-        print('[VERIFY] still working...', flush=True)
+        print('still working...', flush=True)
         last_log = now
 " 2>/dev/null | ptee)
       rm -f "$VERIFY_PROMPT_FILE"
@@ -635,6 +640,8 @@ for line in sys.stdin:
         FIX_PROMPT_FILE=$(mktemp)
         cat > "$FIX_PROMPT_FILE" <<FIX_EOF
 The QA verification of your code change found an issue. Fix it.
+
+Log format: plain text, no markdown, no ** or ## or []. Use ━━━ STAGE ━━━ for headers.
 
 TASK: $TASK_PROMPT
 ISSUE: $FAIL_REASON
@@ -686,7 +693,7 @@ for line in sys.stdin:
             print(text, flush=True)
     now = time.time()
     if now - last_log > 15:
-        print('[VERIFY] still working...', flush=True)
+        print('still working...', flush=True)
         last_log = now
 " 2>/dev/null | ptee
         rm -f "$FIX_PROMPT_FILE"
