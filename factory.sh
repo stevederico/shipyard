@@ -196,7 +196,7 @@ for f in ['package.json', 'backend/package.json']:
         for v in scripts.values():
             for m in re.finditer(r'--port\s+(\d+)', v):
                 ports.add(m.group(1))
-if not ports: ports.add('5173')
+ports.update(['3000', '5173', '8000'])
 print(','.join(sorted(ports)))
 " 2>/dev/null)
     if [ -n "$DEV_PORTS" ]; then
@@ -889,8 +889,8 @@ for f in ['package.json', 'backend/package.json']:
         for v in scripts.values():
             for m in re.finditer(r'--port\s+(\d+)', v):
                 ports.add(m.group(1))
-# Default frontend port if nothing found
-if not ports: ports.add('5173')
+# Always include defaults: vite (5173) and common backend ports
+ports.update(['3000', '5173', '8000'])
 print(','.join(sorted(ports)))
 " 2>/dev/null)
     if [ -n "$DEV_PORTS" ]; then
