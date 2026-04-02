@@ -31,8 +31,9 @@ export SHIPYARD_PROJECTS="$HOME/code"
 ## Usage
 
 ```bash
-bash factory.sh                        # run the factory
+bash factory.sh                        # run one task
 bash factory.sh --dry-run              # preview what it would pick
+bash factory.sh --parallel 3           # run 3 tasks in parallel
 bash factory.sh --issues owner/repo    # pull GitHub issues into tasks/
 ```
 
@@ -110,8 +111,9 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 8. **Task completion** — move task file to `tasks/done/`
 9. **Visual verification** — targeted screenshots of changes via agent-browser
 10. **Streaming output** — real-time Claude session output via stream-json
-11. **Logging** — timestamped logs per run for debugging
-12. **Scheduling** — cron or trigger to run without you
+11. **Parallel execution** — run multiple tasks concurrently with `--parallel N`
+12. **Logging** — timestamped logs per run for debugging
+13. **Scheduling** — cron or trigger to run without you
 
 ## Stages
 

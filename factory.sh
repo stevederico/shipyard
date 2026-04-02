@@ -1,17 +1,19 @@
 #!/bin/bash
-# factory.sh — minimal code factory
+# factory.sh — shipyard code factory
 # Reads next task file from tasks/, lets Claude handle everything autonomously.
-# Usage: bash factory.sh [--dry-run] [--issues owner/repo]
+# Usage: bash factory.sh [--dry-run] [--issues owner/repo] [--parallel N]
 
 SHIPYARD="${SHIPYARD_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 TASK_DIR="$SHIPYARD/tasks"
 DONE_DIR="$TASK_DIR/done"
+LOCK_DIR="$TASK_DIR/.locks"
 PROJECTS="${SHIPYARD_PROJECTS:-$(dirname "$SHIPYARD")}"
 LOGDIR="$SHIPYARD/logs"
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
-mkdir -p "$LOGDIR" "$DONE_DIR"
+mkdir -p "$LOGDIR" "$DONE_DIR" "$LOCK_DIR"
 LOGFILE="$LOGDIR/$TIMESTAMP.log"
+WORKTREE_DIR=""
 
 log() { echo "[$(date +"%H:%M:%S")] $1" >> "$LOGFILE"; echo "$1"; }
 stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
@@ -20,13 +22,39 @@ stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
 cleanup() {
   echo "" | tee -a "$LOGFILE"
   log "━━━ CANCELLED ━━━"
-  if [ -n "$REPO_DIR" ] && [ -n "$BASE_BRANCH" ] && [ "$IS_NEW_REPO" = false ]; then
-    cd "$REPO_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
-    log "Returned to $BASE_BRANCH"
+  # Remove task lock
+  if [ -n "$TASK_FILE" ]; then
+    rm -rf "$LOCK_DIR/$(basename "$TASK_FILE").lock" 2>/dev/null
+  fi
+  # Clean up worktree
+  if [ -n "$WORKTREE_DIR" ] && [ -d "$WORKTREE_DIR" ]; then
+    cd "$SHIPYARD"
+    rm -rf "$WORKTREE_DIR" 2>/dev/null
+    git -C "$(dirname "$WORKTREE_DIR")" worktree prune 2>/dev/null
+    log "Cleaned up worktree"
   fi
   exit 130
 }
 trap cleanup INT
+
+# ── PARALLEL: spawn N workers ─────────────────────────────
+if [ "$1" = "--parallel" ]; then
+  WORKERS="${2:-3}"
+  log "Spawning $WORKERS parallel workers"
+  PIDS=""
+  for i in $(seq 1 "$WORKERS"); do
+    bash "$0" &
+    PIDS="$PIDS $!"
+    sleep 1  # stagger so locks don't collide
+  done
+  # Wait for all workers
+  FAILED=0
+  for pid in $PIDS; do
+    wait "$pid" || FAILED=$((FAILED + 1))
+  done
+  log "All workers done ($FAILED failed)"
+  exit $FAILED
+fi
 
 # ── ISSUES: pull GitHub issues into tasks/ ─────────────────
 if [ "$1" = "--issues" ]; then
@@ -71,10 +99,22 @@ fi
 stage "PICK"
 log "Reading tasks from $TASK_DIR"
 
-TASK_FILE=$(find "$TASK_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort | head -1)
+# Find first unlocked task
+TASK_FILE=""
+for candidate in $(find "$TASK_DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null | sort); do
+  LOCK_FILE="$LOCK_DIR/$(basename "$candidate").lock"
+  # Try to acquire lock (atomic via mkdir)
+  if mkdir "$LOCK_FILE" 2>/dev/null; then
+    TASK_FILE="$candidate"
+    break
+  fi
+done
+
+# Clean up stale locks (older than 30 min)
+find "$LOCK_DIR" -maxdepth 1 -name '*.lock' -type d -mmin +30 -exec rm -rf {} \; 2>/dev/null
 
 if [ -z "$TASK_FILE" ]; then
-  log "No pending tasks"
+  log "No pending tasks (or all locked)"
   exit 0
 fi
 
@@ -177,7 +217,13 @@ stage "BRANCH"
 BRANCH="shipyard/$TASK_NAME"
 if [ "$IS_NEW_REPO" = false ] && [ "$DRY_RUN" = false ]; then
   git branch -D "$BRANCH" 2>/dev/null
-  git checkout -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
+  # Use worktree for isolation (parallel-safe)
+  WORKTREE_DIR="$REPO_DIR/.worktrees/$TASK_NAME"
+  rm -rf "$WORKTREE_DIR" 2>/dev/null
+  git worktree prune 2>/dev/null
+  git worktree add "$WORKTREE_DIR" -b "$BRANCH" 2>&1 | tee -a "$LOGFILE"
+  REPO_DIR="$WORKTREE_DIR"
+  cd "$REPO_DIR"
 fi
 log "Branch: $BRANCH"
 
@@ -202,6 +248,7 @@ if [ "$DRY_RUN" = true ]; then
   log ""
   log "━━━ PROMPT ━━━"
   echo "$TASK_PROMPT" | tee -a "$LOGFILE"
+  rm -rf "$LOCK_DIR/$(basename "$TASK_FILE").lock" 2>/dev/null
   exit 0
 fi
 
@@ -670,9 +717,15 @@ else
   log "Factory run failed — check log: $LOGFILE"
 fi
 
-# Return to default branch (skip for new repos)
-if [ "$IS_NEW_REPO" = false ]; then
-  cd "$REPO_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
+# Clean up worktree and lock
+if [ -n "$WORKTREE_DIR" ] && [ -d "$WORKTREE_DIR" ]; then
+  ORIG_REPO=$(dirname "$WORKTREE_DIR")/..
+  cd "$SHIPYARD"
+  rm -rf "$WORKTREE_DIR" 2>/dev/null
+  git -C "$(cd "$ORIG_REPO" && pwd)" worktree prune 2>/dev/null
+fi
+if [ -n "$TASK_FILE" ]; then
+  rm -rf "$LOCK_DIR/$(basename "$TASK_FILE").lock" 2>/dev/null
 fi
 
 # Exit based on factory result

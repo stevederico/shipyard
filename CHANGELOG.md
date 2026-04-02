@@ -1,5 +1,9 @@
 # Changelog
 
+0.21.0
+  Parallel execution
+  Self-verification loop
+  FIX stage lint retry
 0.20.0
   Screenshot verification
 0.19.0
