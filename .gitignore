@@ -1,3 +1,5 @@
 logs/
+tasks/*.md
+tasks/done/
 tasks/.locks/
 .status/
