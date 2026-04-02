@@ -162,6 +162,14 @@ for pr in prs:
     cd "$WORKTREE"
     npm install --silent 2>/dev/null
 
+    # Start backend if it exists
+    BACKEND_PID=""
+    if [ -d "backend" ] && [ -f "backend/package.json" ]; then
+      echo "  Starting backend..."
+      cd backend && npm install --silent 2>/dev/null && npm run start > /dev/null 2>&1 & BACKEND_PID=$!; cd "$WORKTREE"
+      sleep 2
+    fi
+
     DEV_LOG=$(mktemp)
     npm run "$DEV_CMD" > "$DEV_LOG" 2>&1 &
     DEV_PID=$!
@@ -177,6 +185,7 @@ for pr in prs:
     if [ -z "$DEV_URL" ]; then
       echo "  Dev server failed to start — skipping"
       kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
+      if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
       rm -rf "$WORKTREE" 2>/dev/null
       git -C "$REPO_DIR" worktree prune 2>/dev/null
       echo ""
@@ -203,6 +212,7 @@ Steps:
     echo "$VERIFY_PROMPT" | claude -p --dangerously-skip-permissions 2>/dev/null | tail -5
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
+    if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
 
     SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
     if [ -n "$SCREENSHOTS" ]; then
@@ -692,6 +702,19 @@ for cmd in ['dev', 'start', 'preview']:
       log "Installing dependencies in worktree..."
       npm install --silent 2>/dev/null
     fi
+
+    # Start backend if it exists
+    BACKEND_PID=""
+    if [ -d "backend" ] && [ -f "backend/package.json" ]; then
+      log "Starting backend server..."
+      if [ -n "$WORKTREE_DIR" ]; then
+        cd backend && npm install --silent 2>/dev/null && cd ..
+      fi
+      cd backend && npm run start > /dev/null 2>&1 & BACKEND_PID=$!; cd ..
+      sleep 2
+      log "Backend started (PID $BACKEND_PID)"
+    fi
+
     log "Starting dev server: npm run $DEV_CMD"
     DEV_LOG=$(mktemp)
     npm run "$DEV_CMD" > "$DEV_LOG" 2>&1 &
@@ -863,9 +886,11 @@ for line in sys.stdin:
       log "Dev server did not start within 30s"
     fi
 
-    # Kill the dev server
-    kill "$DEV_PID" 2>/dev/null
-    wait "$DEV_PID" 2>/dev/null
+    # Kill servers
+    kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
+    if [ -n "$BACKEND_PID" ]; then
+      kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null
+    fi
   else
     log "No dev/start/preview script found — skipping verification"
   fi
