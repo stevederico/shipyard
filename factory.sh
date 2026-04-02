@@ -116,8 +116,16 @@ log "Project: $PROJECT_NAME ($PROJECT_DIR)"
 stage "3/12 PULL"
 cd "$PROJECT_DIR"
 if [ "$IS_NEW_PROJECT" = false ]; then
-  git pull origin master 2>&1 | tee -a "$LOGFILE"
+  # Detect default branch
+  BASE_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+  if [ -z "$BASE_BRANCH" ]; then
+    BASE_BRANCH=$(git branch -r 2>/dev/null | grep -oE 'origin/(main|master)' | head -1 | sed 's@origin/@@')
+  fi
+  BASE_BRANCH="${BASE_BRANCH:-main}"
+  log "Base branch: $BASE_BRANCH"
+  git pull origin "$BASE_BRANCH" 2>&1 | tee -a "$LOGFILE"
 else
+  BASE_BRANCH="main"
   log "New project — skipping pull"
 fi
 
@@ -156,20 +164,8 @@ Print a stage header before each step:
 Coding standards (enforce these regardless of project CLAUDE.md):
 $(cat "$SHIPYARD/standards.md")
 
-Steps:
-1. If NEW_PROJECT is true, scaffold the project from scratch (create README, package.json, etc.)
-2. Implement the task
-3. Run tests if they exist (deno run test)
-4. If tests fail, fix and re-run (max 3 attempts)
-5. Stage only the files you modified (never git add . or git add -A)
-6. Commit with a descriptive message (no AI attribution, no Co-Authored-By)
-7. Update CHANGELOG.md (insert above previous, no dashes, 3 words max, present tense)
-8. Bump version in package.json if it exists (minor bump)
-9. Commit the version bump
-10. If NEW_PROJECT is true, create a GitHub repo: gh repo create PROJECT --public --source=. --push
-11. Push the branch: git push origin $BRANCH
-12. If NEW_PROJECT is false, open a PR: gh pr create --base master
-13. Print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
+Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
+$(cat "$SHIPYARD/workflow.md")
 " --dangerously-skip-permissions 2>&1 | tee -a "$LOGFILE"
 
 # ── 8/12 LINT (deterministic checks) ──────────────────────
@@ -177,13 +173,13 @@ stage "8/12 LINT"
 LINT_PASS=true
 
 # Check: no .env or secrets committed on branch
-if git diff "master...$BRANCH" --name-only 2>/dev/null | grep -qE '\.env|\.pem|\.key|credentials|secrets|tokens'; then
+if git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qE '\.env|\.pem|\.key|credentials|secrets|tokens'; then
   log "FAIL: secrets or .env in committed files"
   LINT_PASS=false
 fi
 
 # Check: changelog was modified
-if ! git diff "master...$BRANCH" --name-only 2>/dev/null | grep -qi "changelog"; then
+if ! git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qi "changelog"; then
   log "WARN: CHANGELOG.md not updated"
 fi
 
@@ -257,5 +253,5 @@ fi
 
 # Return to master (skip for new projects)
 if [ "$IS_NEW_PROJECT" = false ]; then
-  cd "$PROJECT_DIR" && git checkout master 2>/dev/null
+  cd "$PROJECT_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
 fi

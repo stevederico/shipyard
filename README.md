@@ -116,9 +116,14 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | 11/12 UPDATE | deterministic | Move task file to `tasks/done/` |
 | 12/12 DONE | deterministic | Report result, return to master |
 
-## Coding Standards
+## Configuration
 
-`standards.md` defines the baseline rules injected into every Claude session (error handling, accessibility, naming, etc.). Edit it to match your preferences.
+Two files control what the factory tells Claude to do:
+
+- **`standards.md`** — coding standards (error handling, accessibility, naming, etc.)
+- **`workflow.md`** — post-coding steps (commit, push, open PR, etc.)
+
+Edit either file to match your preferences. The factory auto-detects your default branch (`main` or `master`) and new repos are created as private.
 
 ## Requirements
 

@@ -6,7 +6,8 @@ Autonomous code factory that reads task files from `tasks/` and ships them as PR
 
 - `factory.sh` — 12-stage factory pipeline. Deterministic stages interleaved with agentic Claude sessions.
 - `tasks/` — task queue. One markdown file per task. Completed tasks move to `tasks/done/`.
-- `standards.md` — coding standards injected into every Claude session. Edit to customize.
+- `standards.md` — coding standards injected into every Claude session.
+- `workflow.md` — post-coding steps (commit, push, PR). Edit to customize.
 - `logs/` — timestamped logs per run (gitignored)
 
 ## Task Format
@@ -27,6 +28,7 @@ Each file in `tasks/` is a task. The filename is the task name, the body is the 
 6. Task file moved to `tasks/done/`
 7. Logs to `logs/{timestamp}.log`
 
-## Coding Standards
+## Configuration
 
-`standards.md` defines the baseline coding standards injected into every Claude session. Edit this file to customize what the factory enforces.
+- `standards.md` — coding standards injected into every Claude session. Edit to customize.
+- `workflow.md` — step-by-step instructions Claude follows after coding (commit, push, PR, etc.). Edit to customize.
