@@ -38,6 +38,23 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 9. **Logging** — capture what happened for debugging ✓
 10. **Scheduling** — cron or trigger to run without you
 
+## Stages
+
+| Stage | Type | What |
+|-------|------|------|
+| 1/12 PICK | deterministic | Parse todos.md |
+| 2/12 ROUTE | deterministic | Find project directory |
+| 3/12 PULL | deterministic | git pull |
+| 4/12 PLAN | deterministic | Read todo.md, select subtask |
+| 5/12 BRANCH | deterministic | Create feature branch, save pre-state |
+| 6/12 CODE | agentic | Claude implements (with coding standards in prompt) |
+| 7/12 TEST | agentic | Claude runs tests (inside session) |
+| 8/12 LINT | deterministic | Shell checks: no secrets, changelog, version bump |
+| 9/12 FIX | agentic | Claude fixes lint failures (max 3 attempts) |
+| 10/12 SHIP | deterministic | Confirm PR was opened |
+| 11/12 UPDATE | deterministic | Update global todos.md |
+| 12/12 DONE | deterministic | Report result, return to master |
+
 ## Requirements
 
 - [Claude Code](https://claude.ai/claude-code) with `--dangerously-skip-permissions`
