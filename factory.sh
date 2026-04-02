@@ -117,7 +117,7 @@ if [ "$1" = "--verify" ]; then
   DEV_CMD=$(python3 -c "
 import json
 scripts = json.load(open('package.json')).get('scripts', {})
-for cmd in ['dev', 'start', 'preview']:
+for cmd in ['start', 'dev', 'preview']:
     if cmd in scripts:
         print(cmd)
         break
@@ -161,13 +161,8 @@ for pr in prs:
 
     cd "$WORKTREE"
     npm install --silent 2>/dev/null
-
-    # Start backend if it exists
-    BACKEND_PID=""
-    if [ -d "backend" ] && [ -f "backend/package.json" ]; then
-      echo "  Starting backend..."
-      cd backend && npm install --silent 2>/dev/null && npm run start > /dev/null 2>&1 & BACKEND_PID=$!; cd "$WORKTREE"
-      sleep 2
+    if grep -q '"workspaces"' package.json 2>/dev/null; then
+      npm install --workspaces --silent 2>/dev/null
     fi
 
     DEV_LOG=$(mktemp)
@@ -185,7 +180,6 @@ for pr in prs:
     if [ -z "$DEV_URL" ]; then
       echo "  Dev server failed to start — skipping"
       kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
-      if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
       rm -rf "$WORKTREE" 2>/dev/null
       git -C "$REPO_DIR" worktree prune 2>/dev/null
       echo ""
@@ -212,7 +206,7 @@ Steps:
     echo "$VERIFY_PROMPT" | claude -p --dangerously-skip-permissions 2>/dev/null | tail -5
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
-    if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
+    lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
 
     SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
     if [ -n "$SCREENSHOTS" ]; then
@@ -689,7 +683,7 @@ if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null && command -v agent-b
     DEV_CMD=$(python3 -c "
 import json
 scripts = json.load(open('package.json')).get('scripts', {})
-for cmd in ['dev', 'start', 'preview']:
+for cmd in ['start', 'dev', 'preview']:
     if cmd in scripts:
         print(cmd)
         break
@@ -697,25 +691,17 @@ for cmd in ['dev', 'start', 'preview']:
   fi
 
   if [ -n "$DEV_CMD" ]; then
-    # Install deps in worktree (symlinks from main repo may be broken)
+    # Install deps (worktree symlinks may be broken)
     if [ -n "$WORKTREE_DIR" ] && [ -f "package.json" ]; then
-      log "Installing dependencies in worktree..."
+      log "Installing dependencies..."
       npm install --silent 2>/dev/null
-    fi
-
-    # Start backend if it exists
-    BACKEND_PID=""
-    if [ -d "backend" ] && [ -f "backend/package.json" ]; then
-      log "Starting backend server..."
-      if [ -n "$WORKTREE_DIR" ]; then
-        cd backend && npm install --silent 2>/dev/null && cd ..
+      # Install workspace deps (e.g. backend/)
+      if grep -q '"workspaces"' package.json 2>/dev/null; then
+        npm install --workspaces --silent 2>/dev/null
       fi
-      cd backend && npm run start > /dev/null 2>&1 & BACKEND_PID=$!; cd ..
-      sleep 2
-      log "Backend started (PID $BACKEND_PID)"
     fi
 
-    log "Starting dev server: npm run $DEV_CMD"
+    log "Starting: npm run $DEV_CMD"
     DEV_LOG=$(mktemp)
     npm run "$DEV_CMD" > "$DEV_LOG" 2>&1 &
     DEV_PID=$!
@@ -886,11 +872,10 @@ for line in sys.stdin:
       log "Dev server did not start within 30s"
     fi
 
-    # Kill servers
+    # Kill dev server (and any child processes like backend)
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
-    if [ -n "$BACKEND_PID" ]; then
-      kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null
-    fi
+    # Kill any leftover node processes on the dev ports
+    lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
   else
     log "No dev/start/preview script found — skipping verification"
   fi
