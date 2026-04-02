@@ -195,7 +195,7 @@ GIT DIFF (truncated):
 $DIFF
 
 Steps:
-1. Navigate to the affected pages with agent-browser
+1. Navigate to the affected pages with agent-browser. If the app requires authentication, sign up for a new test account.
 2. Take 1-2 screenshots of the changes: agent-browser screenshot $SCREENSHOT_DIR/description.png
 3. Print VERIFY_DONE when finished"
 
@@ -729,6 +729,7 @@ Your job is to verify the implementation matches the task requirements. Do this:
 
 1. Read the diff to understand what changed and which pages/routes are affected
 2. Use agent-browser to navigate to the affected pages
+   - If the app requires authentication, sign up for a new test account to get past it
 3. Check the browser console for errors: agent-browser execute "JSON.stringify(window.__console_errors || [])"
 4. Take screenshots of the changes: agent-browser screenshot $SCREENSHOT_DIR/description.png
 5. Compare what you see against the task requirements:
