@@ -18,7 +18,7 @@ the high-impact gaps with enterprise systems have been closed.
 | Branch isolation | Sandboxed VMs, devboxes | Worktree-isolated `shipyard/` branches |
 | Autonomous coding | OpenCode, Goose, Codex, Copilot | Claude Code `-p` |
 | PR creation | GitHub API | `gh pr create` |
-| Deterministic + agentic stages | Blueprints, state machines | 12-stage pipeline |
+| Deterministic + agentic stages | Blueprints, state machines | Multi-stage pipeline (PICK, ROUTE, PULL, BRANCH, CODE, LINT, FIX, SHIP, VERIFY, UPDATE) |
 | Coding standards | MCP plugins, scoped rules | `standards.md` + project `CLAUDE.md` |
 | Self-verification | Chromium screenshots, Sentry, Datadog | VERIFY stage: dev server + agent-browser + verify/fix loop |
 | CI iteration loop | Max 2 rounds with autofix | FIX stage: lint failures to Claude, max 2 attempts |
