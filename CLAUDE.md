@@ -23,10 +23,11 @@ Each file in `tasks/` is a task. The filename is the task name, the body is the 
 1. Pick first `.md` file from `tasks/`
 2. Route to repo (local → GitHub clone → create new)
 3. Detect default branch (`main`/`master`), git pull
-4. Claude codes, tests, follows workflow.md (commit, push, PR)
+4. Claude codes, tests, follows workflow.md (commit, push, PR) — output streams in real time
 5. Deterministic lint checks: no secrets, test failures
-6. Task file moved to `tasks/done/`
-7. Logs to `logs/{timestamp}.log`
+6. Verify: start dev server, Claude reads diff and screenshots affected pages via agent-browser
+7. Task file moved to `tasks/done/`
+8. Logs to `logs/{timestamp}.log`
 
 ## Configuration
 

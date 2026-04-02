@@ -59,7 +59,7 @@ Add a dark mode toggle to the settings page. Should respect system
 preference by default. Use the existing ThemeProvider context.
 ```
 
-**Screenshot verification** — if `agent-browser` is installed and the project has a `dev`, `start`, or `preview` script in package.json, Shipyard automatically starts the dev server, takes a screenshot, and attaches it to the PR.
+**Screenshot verification** — if `agent-browser` is installed and the project has a `dev`/`start`/`preview` script, Shipyard starts the dev server after shipping, reads the git diff to figure out which pages were affected, and uses Claude + agent-browser to take targeted screenshots of the changes. Screenshots are committed to the branch and commented on the PR.
 
 **New repo** — omit `repo:` and Shipyard creates one (named from the filename):
 
@@ -108,8 +108,10 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 6. **PR creation** — open a PR via `gh` CLI for every task
 7. **CI gate** — tests must pass before merge (iterate-pr pattern)
 8. **Task completion** — move task file to `tasks/done/`
-9. **Logging** — timestamped logs per run for debugging
-10. **Scheduling** — cron or trigger to run without you
+9. **Visual verification** — targeted screenshots of changes via agent-browser
+10. **Streaming output** — real-time Claude session output via stream-json
+11. **Logging** — timestamped logs per run for debugging
+12. **Scheduling** — cron or trigger to run without you
 
 ## Stages
 
@@ -124,7 +126,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | LINT | deterministic | Shell checks: no secrets, test failures |
 | FIX | agentic | Claude fixes lint failures (max 3 attempts) |
 | SHIP | deterministic | Confirm PR was opened |
-| VERIFY | deterministic | Screenshot URL via agent-browser, attach to PR |
+| VERIFY | agentic | Claude reads diff, screenshots affected pages via agent-browser |
 | UPDATE | deterministic | Move task file to `tasks/done/`, close GitHub issue |
 | DONE | deterministic | Report result, return to default branch |
 
