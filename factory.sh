@@ -5,29 +5,43 @@
 
 TODOS="$HOME/todos.md"
 PROJECTS="$HOME/Desktop/projects"
+LOGDIR="$HOME/Desktop/projects/shipyard/logs"
 DATE=$(date +"%m/%d/%y")
+TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+
+mkdir -p "$LOGDIR"
+LOGFILE="$LOGDIR/$TIMESTAMP.log"
+
+log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
+
+log "=== Shipyard Factory ==="
 
 # Get first task: WIP first, then Tasks
+log "Reading tasks from $TODOS"
 TASK=$(awk '/^## (WIP|Tasks)$/{found=1;next} /^## /{found=0} found && /^- /{print; exit}' "$TODOS" \
   | sed 's/^- //')
 
 if [ -z "$TASK" ]; then
-  echo "No tasks"
+  log "No tasks found"
   exit 0
 fi
 
-# Strip priority and tags for display
+# Strip completion and tags for display
 TASK_CLEAN=$(echo "$TASK" | sed 's/ \[[0-9]*\]//;s/ #[a-z]*//g')
-echo "Factory picking up: $TASK_CLEAN"
+log "Task: $TASK_CLEAN"
 
 if [ "$1" = "--dry-run" ]; then
-  echo "Dry run — would execute: $TASK_CLEAN"
+  log "Dry run — stopping before execution"
   exit 0
 fi
+
+log "Starting Claude session..."
+log "---claude-session-start---"
 
 # Let Claude figure out the project, code it, test it, ship it
 claude -p "
 You are running in factory mode. Complete this task autonomously.
+Narrate what you are doing at each step so the log is readable.
 
 TASK: $TASK_CLEAN
 
@@ -42,11 +56,39 @@ Steps:
 8. If tests pass: commit and push the branch, then open a PR via gh pr create
 9. If no tests exist: commit and push the branch, open a PR
 10. At the end, print FACTORY_RESULT:SUCCESS or FACTORY_RESULT:FAILED
-" --dangerously-skip-permissions 2>&1 | tee /tmp/factory-latest.log
+" --dangerously-skip-permissions --output-format stream-json 2>&1 | while IFS= read -r line; do
+  # Parse streaming JSON for human-readable output
+  TYPE=$(echo "$line" | python3 -c "import sys,json
+try:
+  d=json.load(sys.stdin)
+  t=d.get('type','')
+  if t=='assistant':
+    msg=d.get('message',{})
+    for b in msg.get('content',[]):
+      if b.get('type')=='text': print('text:'+b['text'])
+      elif b.get('type')=='tool_use': print('tool:'+b.get('name','')+' → '+str(b.get('input',{}).get('command',b.get('input',{}).get('pattern',b.get('input',{}).get('file_path','')))))
+  elif t=='result':
+    for b in d.get('content',[]):
+      if b.get('type')=='text': print('result:'+b['text'])
+except: pass" 2>/dev/null)
+  if [ -n "$TYPE" ]; then
+    echo "$TYPE" | while IFS= read -r parsed; do
+      case "$parsed" in
+        tool:*) log "  🔧 ${parsed#tool:}" ;;
+        text:*) log "  ${parsed#text:}" ;;
+        result:*) log "  ${parsed#result:}" ;;
+      esac
+    done
+  fi
+  echo "$line" >> "$LOGFILE.raw.json"
+done
 
-# Check if Claude reported success
-if grep -q "FACTORY_RESULT:SUCCESS" /tmp/factory-latest.log; then
-  # Move task from Tasks to today's completed section
+log "---claude-session-end---"
+
+# Check result from raw JSON log
+if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE.raw.json" 2>/dev/null; then
+  log "✓ Task completed successfully"
+
   # Remove the task line
   sed -i '' "/^- $(echo "$TASK" | sed 's/[\/&]/\\&/g')$/d" "$TODOS"
 
@@ -55,14 +97,15 @@ if grep -q "FACTORY_RESULT:SUCCESS" /tmp/factory-latest.log; then
     sed -i '' "/^## $DATE$/a\\
 $TASK_CLEAN" "$TODOS"
   else
-    # Insert new date section after WIP section
     sed -i '' "/^## Tasks$/i\\
 ## $DATE\\
 $TASK_CLEAN\\
 " "$TODOS"
   fi
 
-  echo "Factory complete: $TASK_CLEAN"
+  log "Moved task to completed: $DATE"
 else
-  echo "Factory failed: $TASK_CLEAN (see /tmp/factory-latest.log)"
+  log "✗ Task failed (see $LOGFILE.raw.json)"
 fi
+
+log "=== Done ==="
