@@ -36,6 +36,14 @@ bash factory.sh --dry-run              # preview what it would pick
 bash factory.sh --issues owner/repo    # pull GitHub issues into tasks/
 ```
 
+Run in its own terminal — not inside another tool. Monitor progress in a second terminal:
+
+```bash
+tail -f logs/*.log
+```
+
+Cancel anytime with `Ctrl+C` — Shipyard cleans up the branch and returns to the default branch.
+
 ## Task Format
 
 Each task is a markdown file in `tasks/`. The filename becomes the task name. The file body is the full prompt sent to Claude — write as much or as little as you need.

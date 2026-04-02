@@ -16,6 +16,18 @@ LOGFILE="$LOGDIR/$TIMESTAMP.log"
 log() { echo "[$(date +"%H:%M:%S")] $1" | tee -a "$LOGFILE"; }
 stage() { echo "" | tee -a "$LOGFILE"; log "━━━ STAGE: $1 ━━━"; }
 
+# ── Ctrl+C cleanup ────────────────────────────────────────
+cleanup() {
+  echo "" | tee -a "$LOGFILE"
+  log "━━━ CANCELLED ━━━"
+  if [ -n "$REPO_DIR" ] && [ -n "$BASE_BRANCH" ] && [ "$IS_NEW_REPO" = false ]; then
+    cd "$REPO_DIR" && git checkout "$BASE_BRANCH" 2>/dev/null
+    log "Returned to $BASE_BRANCH"
+  fi
+  exit 130
+}
+trap cleanup INT
+
 # ── ISSUES: pull GitHub issues into tasks/ ─────────────────
 if [ "$1" = "--issues" ]; then
   REPO="$2"
@@ -193,6 +205,8 @@ fi
 
 # ── CODE + TEST (Claude session) ──────────────────────────
 stage "CODE"
+log "Ctrl+C to cancel. Monitor: tail -f $LOGFILE"
+CODE_START=$(date +%s)
 claude -p "
 You are running in factory mode. Complete this task autonomously.
 
@@ -213,6 +227,9 @@ $(cat "$SHIPYARD/standards.md")
 Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
 $(cat "$SHIPYARD/workflow.md")
 " --dangerously-skip-permissions --verbose 2>&1 | while IFS= read -r line; do echo "$line"; echo "$line" >> "$LOGFILE"; done
+CODE_END=$(date +%s)
+CODE_ELAPSED=$(( CODE_END - CODE_START ))
+log "Claude session completed in ${CODE_ELAPSED}s"
 
 # ── LINT (deterministic checks) ───────────────────────────
 stage "LINT"
