@@ -273,16 +273,19 @@ log "Claude session completed in ${CODE_ELAPSED}s"
 # ── LINT (deterministic checks) ───────────────────────────
 stage "LINT"
 LINT_PASS=true
+LINT_FAILURES=""
 
 # Check: no .env or secrets committed on branch
 if git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qE '\.env|\.pem|\.key|credentials|secrets|tokens'; then
   log "FAIL: secrets or .env in committed files"
+  LINT_FAILURES="${LINT_FAILURES}\n- Secrets or .env files committed to branch"
   LINT_PASS=false
 fi
 
 # Check: changelog was modified
 if ! git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qi "changelog"; then
   log "WARN: CHANGELOG.md not updated"
+  LINT_FAILURES="${LINT_FAILURES}\n- CHANGELOG.md not updated"
 fi
 
 # Check: package.json version bumped
@@ -290,6 +293,7 @@ if [ -f "$REPO_DIR/package.json" ] && [ -n "$PRE_VERSION" ]; then
   POST_VERSION=$(python3 -c "import json; print(json.load(open('package.json')).get('version',''))" 2>/dev/null)
   if [ "$PRE_VERSION" = "$POST_VERSION" ]; then
     log "WARN: package.json version not bumped ($PRE_VERSION)"
+    LINT_FAILURES="${LINT_FAILURES}\n- package.json version not bumped (still $PRE_VERSION)"
   else
     log "OK: version $PRE_VERSION → $POST_VERSION"
   fi
@@ -298,20 +302,112 @@ fi
 # Check: tests passed (look for failure indicators in log)
 if grep -qE "(FAIL|ERROR|test.*failed|Tests:.*failed)" "$LOGFILE" 2>/dev/null && ! grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE"; then
   log "FAIL: tests did not pass"
+  LINT_FAILURES="${LINT_FAILURES}\n- Tests failed"
   LINT_PASS=false
 fi
 
-if [ "$LINT_PASS" = true ]; then
+if [ "$LINT_PASS" = true ] && [ -z "$LINT_FAILURES" ]; then
   log "All lint checks passed"
 else
-  log "Lint checks failed"
+  log "Lint issues found"
 fi
 
-# ── FIX (if lint failed, Claude fixes — max 3 attempts) ──
-if [ "$LINT_PASS" = false ]; then
+# ── FIX (Claude fixes lint failures — max 2 attempts) ────
+if [ -n "$LINT_FAILURES" ]; then
   stage "FIX"
-  log "Skipped — lint failures were non-blocking this run"
-  # TODO: re-run Claude to fix lint failures
+  FIX_ATTEMPT=0
+  MAX_FIX_ATTEMPTS=2
+
+  while [ -n "$LINT_FAILURES" ] && [ "$FIX_ATTEMPT" -lt "$MAX_FIX_ATTEMPTS" ]; do
+    FIX_ATTEMPT=$((FIX_ATTEMPT + 1))
+    log "Fix attempt $FIX_ATTEMPT/$MAX_FIX_ATTEMPTS"
+
+    FIX_PROMPT_FILE=$(mktemp)
+    cat > "$FIX_PROMPT_FILE" <<LINT_FIX_EOF
+You are fixing lint failures in a shipyard run. Fix these issues and commit.
+
+PROJECT: $REPO_NAME
+BRANCH: $BRANCH
+
+LINT FAILURES:
+$(echo -e "$LINT_FAILURES")
+
+Steps:
+1. Fix each issue listed above
+2. If secrets are committed, remove them and add to .gitignore
+3. If CHANGELOG.md missing, create or update it
+4. If version not bumped, bump it in package.json
+5. If tests failed, fix the failing tests
+6. Stage only files you changed, commit with a descriptive message
+7. Push: git push origin $BRANCH
+8. Print FIX_DONE when finished
+LINT_FIX_EOF
+
+    claude -p "$(cat "$FIX_PROMPT_FILE")" --dangerously-skip-permissions \
+      --output-format stream-json 2>/dev/null | \
+      python3 -uc "
+import sys, json, time, signal
+
+signal.alarm(120)
+signal.signal(signal.SIGALRM, lambda *_: (print('[FIX] timed out', flush=True), sys.exit(0)))
+
+seen = set()
+last_log = time.time()
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    etype = event.get('type', '')
+    if etype == 'assistant':
+        uid = event.get('uuid', '')
+        if uid in seen:
+            continue
+        seen.add(uid)
+        for block in event.get('message', {}).get('content', []):
+            if block.get('type') == 'text':
+                print(block['text'], flush=True)
+                last_log = time.time()
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text:
+            print(text, flush=True)
+    now = time.time()
+    if now - last_log > 15:
+        print('[FIX] still working...', flush=True)
+        last_log = now
+" 2>/dev/null | tee -a "$LOGFILE"
+    rm -f "$FIX_PROMPT_FILE"
+
+    # Re-run lint checks
+    LINT_FAILURES=""
+    if git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qE '\.env|\.pem|\.key|credentials|secrets|tokens'; then
+      LINT_FAILURES="${LINT_FAILURES}\n- Secrets or .env files still committed"
+    fi
+    if ! git diff "$BASE_BRANCH...$BRANCH" --name-only 2>/dev/null | grep -qi "changelog"; then
+      LINT_FAILURES="${LINT_FAILURES}\n- CHANGELOG.md still not updated"
+    fi
+    if [ -f "$REPO_DIR/package.json" ] && [ -n "$PRE_VERSION" ]; then
+      POST_VERSION=$(python3 -c "import json; print(json.load(open('package.json')).get('version',''))" 2>/dev/null)
+      if [ "$PRE_VERSION" = "$POST_VERSION" ]; then
+        LINT_FAILURES="${LINT_FAILURES}\n- package.json version still not bumped"
+      fi
+    fi
+
+    if [ -z "$LINT_FAILURES" ]; then
+      log "All lint issues fixed"
+      break
+    else
+      log "Issues remaining after attempt $FIX_ATTEMPT"
+    fi
+  done
+
+  if [ -n "$LINT_FAILURES" ]; then
+    log "Could not fix all lint issues after $MAX_FIX_ATTEMPTS attempts"
+  fi
 fi
 
 # ── SHIP ──────────────────────────────────────────────────
