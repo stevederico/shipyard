@@ -1,5 +1,7 @@
 # Changelog
 
+  Rename project to repo
+  GitHub clone fallback
   Configurable workflow file
   Auto-detect base branch
   Configurable standards file
