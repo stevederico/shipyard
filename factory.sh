@@ -198,7 +198,7 @@ for pr in prs:
     DIFF=$(git diff "$BASE_BRANCH...$BRANCH" 2>/dev/null | head -200)
 
     VERIFY_PROMPT="You are verifying PR #$PR_NUM: $TITLE
-Dev server is running at $DEV_URL.
+Dev server is running at $DEV_URL. Be fast.
 
 Log format: plain text only, no markdown.
 
@@ -206,9 +206,14 @@ GIT DIFF (truncated):
 $DIFF
 
 Steps:
-1. Navigate to the affected pages with agent-browser. If the app requires authentication, sign up for a new test account.
-2. Take 1-2 screenshots of the changes: agent-browser screenshot $SCREENSHOT_DIR/description.png
-3. Print VERIFY_DONE when finished"
+1. Open the page: agent-browser open $DEV_URL
+2. Wait: agent-browser wait --load networkidle
+3. Snapshot the DOM: agent-browser snapshot -i (read it to understand the page)
+4. If login page, sign up for a test account, then re-snapshot
+5. Navigate to the affected route if needed
+6. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/description.png
+   You MUST take at least one screenshot.
+7. Print VERIFY_DONE"
 
     echo "  Verifying PR #$PR_NUM..."
     VERIFY_PROMPT_FILE=$(mktemp)
@@ -781,22 +786,22 @@ SCREENSHOT DIR: $SCREENSHOT_DIR
 
 Log format: plain text, no markdown, no ** or ## or []. Use ━━━ STAGE ━━━ for headers.
 
-Your job is to verify the implementation matches the task requirements. Do this:
+Your job is to verify the implementation matches the task requirements. Be fast.
 
-1. Read the diff to understand what changed and which pages/routes are affected
-2. Use agent-browser to navigate to the affected pages
-   - If the app requires authentication, sign up for a new test account to get past it
-3. Check the browser console for errors: agent-browser execute "JSON.stringify(window.__console_errors || [])"
-4. Take screenshots of the changes: agent-browser screenshot $SCREENSHOT_DIR/description.png
-5. Compare what you see against the task requirements:
-   - Is the feature visible and in the right place?
-   - Does it look correct (colors, layout, text)?
-   - Are there any console errors?
-   - Does interacting with it work? (click buttons, type in inputs, etc.)
+1. Open the page: agent-browser open $DEV_URL
+2. Wait for load: agent-browser wait --load networkidle
+3. Get the DOM snapshot: agent-browser snapshot -i
+   - Read the snapshot to understand what's on the page
+   - If you see a login/signup page, sign up for a test account to get past it, then re-snapshot
+4. Navigate to the affected route if needed (read the diff to know which route)
+5. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/description.png
+   - You MUST take at least one screenshot. This is not optional.
+6. Check console errors: agent-browser execute "JSON.stringify(window.__console_errors || [])"
+7. Compare what the snapshot shows against the task requirements
 
-6. Print your verdict:
-   VERIFY_PASS — if the implementation matches the requirements and works correctly
-   VERIFY_FAIL: reason — if something is wrong, describe what needs fixing
+Print your verdict:
+  VERIFY_PASS — implementation matches requirements
+  VERIFY_FAIL: reason — something is wrong
 
 Max 2 minutes. Focus on what the task asked for, not unrelated issues.
 VERIFY_EOF
@@ -865,8 +870,8 @@ The dev server is running at $DEV_URL. Fix the code, then verify with agent-brow
 Steps:
 1. Fix the issue in the source code
 2. Wait for hot reload (the dev server is still running)
-3. Use agent-browser to verify the fix: agent-browser open $DEV_URL && agent-browser wait --load networkidle
-4. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/after-fix.png
+3. Verify: agent-browser open $DEV_URL && agent-browser wait --load networkidle && agent-browser snapshot -i
+4. Take a screenshot: agent-browser screenshot $SCREENSHOT_DIR/after-fix.png (REQUIRED)
 5. Stage and commit: git add <files> && git commit -m "Fix: <description>"
 6. Push: git push origin $BRANCH
 7. Print VERIFY_PASS if fixed, VERIFY_FAIL: <reason> if still broken
