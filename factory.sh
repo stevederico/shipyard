@@ -171,6 +171,25 @@ for pr in prs:
       continue
     fi
 
+    # Start backend if it exists
+    BACKEND_PID=""
+    if [ -f "backend/package.json" ]; then
+      BACKEND_START=$(python3 -c "
+import json
+scripts = json.load(open('backend/package.json')).get('scripts', {})
+for cmd in ['start', 'dev']:
+    if cmd in scripts:
+        print(cmd)
+        break
+" 2>/dev/null)
+      if [ -n "$BACKEND_START" ]; then
+        echo "  Starting backend: npm run $BACKEND_START --prefix backend"
+        npm run "$BACKEND_START" --prefix backend > /dev/null 2>&1 &
+        BACKEND_PID=$!
+        sleep 3
+      fi
+    fi
+
     DEV_LOG=$(mktemp)
     npm run "$DEV_CMD" > "$DEV_LOG" 2>&1 &
     DEV_PID=$!
@@ -186,6 +205,7 @@ for pr in prs:
     if [ -z "$DEV_URL" ]; then
       echo "  Dev server failed to start — skipping"
       kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
+      if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
       lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
       git checkout "$BASE_BRANCH" 2>/dev/null
       echo ""
@@ -249,6 +269,7 @@ for line in sys.stdin:
     rm -f "$VERIFY_PROMPT_FILE"
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
+    if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
     lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
 
     SCREENSHOTS=$(find "$SCREENSHOT_DIR" -name '*.png' -type f 2>/dev/null)
@@ -750,6 +771,25 @@ for cmd in ['start', 'dev', 'preview']:
       fi
     fi
 
+    # Start backend if it exists (e.g. Skateboard apps with backend/)
+    BACKEND_PID=""
+    if [ -f "backend/package.json" ]; then
+      BACKEND_START=$(python3 -c "
+import json
+scripts = json.load(open('backend/package.json')).get('scripts', {})
+for cmd in ['start', 'dev']:
+    if cmd in scripts:
+        print(cmd)
+        break
+" 2>/dev/null)
+      if [ -n "$BACKEND_START" ]; then
+        log "Starting backend: npm run $BACKEND_START --prefix backend"
+        npm run "$BACKEND_START" --prefix backend > /dev/null 2>&1 &
+        BACKEND_PID=$!
+        sleep 3
+      fi
+    fi
+
     log "Starting: npm run $DEV_CMD"
     DEV_LOG=$(mktemp)
     npm run "$DEV_CMD" > "$DEV_LOG" 2>&1 &
@@ -921,8 +961,11 @@ for line in sys.stdin:
       log "Dev server did not start within 30s"
     fi
 
-    # Kill dev server (and any child processes like backend)
+    # Kill dev server and backend
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
+    if [ -n "$BACKEND_PID" ]; then
+      kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null
+    fi
     # Kill any leftover node processes on the dev ports
     lsof -ti :5173,:5174,:5175,:5176,:5177,:5178,:5179,:5180,:5181,:5182,:8000 2>/dev/null | xargs kill 2>/dev/null
   else

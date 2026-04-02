@@ -1,5 +1,8 @@
 # Changelog
 
+0.23.0
+  Start backend before frontend
+  Add versioning rules workflow
 0.22.0
   Open source prep
   Add MIT LICENSE
