@@ -104,10 +104,27 @@ This fetches open issues labeled `shipyard` and creates task files from them. Af
 
 ## Schedule
 
+Shipyard is designed to run unattended. Point cron at it and your issues get solved while you sleep.
+
+**Every hour** — process one task from the queue:
+
 ```bash
-crontab -e
 0 * * * * /path/to/shipyard/factory.sh >> /path/to/shipyard/shipyard.log 2>&1
 ```
+
+**Every hour** — pull new GitHub issues, then process them:
+
+```bash
+0 * * * * /path/to/shipyard/factory.sh --issues owner/repo >> /path/to/shipyard/shipyard.log 2>&1
+```
+
+**Nightly batch** — run 5 tasks in parallel at 2am:
+
+```bash
+0 2 * * * /path/to/shipyard/factory.sh --parallel 5 >> /path/to/shipyard/shipyard.log 2>&1
+```
+
+Label a GitHub issue `shipyard`, go to bed, wake up to a PR with screenshots. That's the workflow.
 
 ## Factory Features
 
