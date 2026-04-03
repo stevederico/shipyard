@@ -1,5 +1,8 @@
 # Changelog
 
+0.25.0
+  Swappable agent provider
+  Support dotbot and Claude
 0.24.0
   CI workflow generator
   CI gate with fix loop

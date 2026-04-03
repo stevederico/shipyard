@@ -1,6 +1,6 @@
 #!/bin/bash
 # factory.sh — shipyard code factory
-# Reads next task file from tasks/, lets Claude handle everything autonomously.
+# Reads next task file from tasks/, ships them as PRs.
 # Usage: bash factory.sh [--dry-run] [--issues owner/repo] [--parallel N] [--verify owner/repo]
 
 SHIPYARD="${SHIPYARD_DIR:-$(cd "$(dirname "$0")" && pwd)}"
@@ -30,6 +30,99 @@ stage() { echo "" >> "$LOGFILE"; echo ""; log "━━━ $1 ━━━"; }
 update_status() { echo "$1" > "$STATUS_DIR/agent-$AGENT_ID"; }
 # Prefixed tee: writes raw to log, prefixed to terminal
 ptee() { while IFS= read -r line; do echo "$line" >> "$LOGFILE"; echo "${PREFIX}${line}"; done; }
+
+# ── Agent configuration ───────────────────────────────────
+# SHIPYARD_AGENT: claude (default), dotbot
+# SHIPYARD_PROVIDER: xai (default) — provider for dotbot (xai, anthropic, openai, ollama)
+# SHIPYARD_MODEL: model override for dotbot
+SHIPYARD_CLI="${SHIPYARD_AGENT:-claude}"
+
+# run_agent <prompt_file> [--model <model>] [--timeout <secs>] [--timeout-msg <msg>] [--verbose]
+# Runs the configured agent CLI and streams parsed output to stdout.
+run_agent() {
+  local prompt_file="$1"; shift
+  local model="" timeout_secs=0 timeout_msg="timed out" verbose=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --model) model="$2"; shift 2 ;;
+      --timeout) timeout_secs="$2"; shift 2 ;;
+      --timeout-msg) timeout_msg="$2"; shift 2 ;;
+      --verbose) verbose="yes"; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  local prompt
+  prompt=$(cat "$prompt_file")
+
+  case "$SHIPYARD_CLI" in
+    claude)
+      local -a args=(-p "$prompt" --dangerously-skip-permissions --output-format stream-json)
+      [ -n "$model" ] && args+=(--model "$model")
+      [ -n "$verbose" ] && args+=(--verbose)
+
+      claude "${args[@]}" 2>/dev/null | \
+        python3 -uc "
+import sys, json, signal
+timeout = $timeout_secs
+tmsg = '''$timeout_msg'''
+if timeout > 0:
+    signal.alarm(timeout)
+    signal.signal(signal.SIGALRM, lambda *_: (print(tmsg, flush=True), sys.exit(0)))
+seen = set()
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try: event = json.loads(line)
+    except: continue
+    etype = event.get('type', '')
+    if etype == 'assistant':
+        uid = event.get('uuid', '')
+        if uid in seen: continue
+        seen.add(uid)
+        for block in event.get('message', {}).get('content', []):
+            bt = block.get('type', '')
+            if bt == 'text':
+                print(block['text'], flush=True)
+            elif bt == 'tool_use':
+                name = block.get('name', '')
+                inp = block.get('input', {})
+                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
+                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
+                else: print(f'  Tool: {name}'.rstrip(), flush=True)
+    elif etype == 'result':
+        text = event.get('result', '')
+        if text: print(text, flush=True)
+"
+      ;;
+    dotbot)
+      local -a args=(--provider "${SHIPYARD_PROVIDER:-xai}")
+      [ -n "${SHIPYARD_MODEL:-}" ] && args+=(--model "$SHIPYARD_MODEL")
+
+      if [ "$timeout_secs" -gt 0 ] 2>/dev/null; then
+        dotbot "$prompt" "${args[@]}" 2>/dev/null | \
+          python3 -uc "
+import sys, signal
+signal.alarm($timeout_secs)
+signal.signal(signal.SIGALRM, lambda *_: (print('''$timeout_msg''', flush=True), sys.exit(0)))
+for line in sys.stdin:
+    print(line.rstrip(), flush=True)
+"
+      else
+        dotbot "$prompt" "${args[@]}" 2>/dev/null
+      fi
+      ;;
+    *)
+      log "Unknown agent: $SHIPYARD_CLI"
+      return 1
+      ;;
+  esac
+}
 
 # ── Ctrl+C cleanup ────────────────────────────────────────
 cleanup() {
@@ -313,41 +406,8 @@ Steps:
     VERIFY_PROMPT_FILE=$(mktemp)
     echo "$VERIFY_PROMPT" > "$VERIFY_PROMPT_FILE"
     VERIFY_LOG=$(mktemp)
-    claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
-      --model sonnet --output-format stream-json 2>/dev/null | \
-      python3 -uc "
-import sys, json, time, signal
-signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('  timed out', flush=True), sys.exit(0)))
-seen = set()
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try: event = json.loads(line)
-    except: continue
-    etype = event.get('type', '')
-    if etype == 'assistant':
-        uid = event.get('uuid', '')
-        if uid in seen: continue
-        seen.add(uid)
-        for block in event.get('message', {}).get('content', []):
-            bt = block.get('type', '')
-            if bt == 'text':
-                print('  ' + block['text'], flush=True)
-            elif bt == 'tool_use':
-                name = block.get('name', '')
-                inp = block.get('input', {})
-                if name == 'Read': print(f'    Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Edit': print(f'    Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Write': print(f'    Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Bash': print(f'    Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
-                elif name == 'Grep': print(f'    Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Glob': print(f'    Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                else: print(f'    Tool: {name}'.rstrip(), flush=True)
-    elif etype == 'result':
-        text = event.get('result', '')
-        if text: print('  ' + text, flush=True)
-" 2>/dev/null | tee "$VERIFY_LOG"
+    run_agent "$VERIFY_PROMPT_FILE" --model sonnet --timeout 120 --timeout-msg "  timed out" | \
+      sed 's/^/  /' | tee "$VERIFY_LOG"
     rm -f "$VERIFY_PROMPT_FILE"
 
     kill "$DEV_PID" 2>/dev/null; wait "$DEV_PID" 2>/dev/null
@@ -658,7 +718,7 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
-# ── CODE + TEST (Claude session) ──────────────────────────
+# ── CODE + TEST (agent session) ───────────────────────────
 stage "CODE"
 update_status "$TASK_NAME — coding..."
 log "Ctrl+C to cancel. Monitor: tail -f $LOGFILE"
@@ -688,59 +748,13 @@ Workflow (BRANCH=$BRANCH, BASE_BRANCH=$BASE_BRANCH):
 $(cat "$SHIPYARD/workflow.md")
 PROMPT_EOF
 
-# Stream Claude output in real time via stream-json
-claude -p "$(cat "$PROMPT_FILE")" --dangerously-skip-permissions --verbose \
-  --output-format stream-json 2>/dev/null | \
-  python3 -uc "
-import sys, json
-seen = set()
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-    except json.JSONDecodeError:
-        continue
-    etype = event.get('type', '')
-    if etype == 'assistant':
-        msg = event.get('message', {})
-        uid = event.get('uuid', '')
-        if uid in seen:
-            continue
-        seen.add(uid)
-        for block in msg.get('content', []):
-            bt = block.get('type', '')
-            if bt == 'text':
-                print(block['text'], flush=True)
-            elif bt == 'tool_use':
-                name = block.get('name', '')
-                inp = block.get('input', {})
-                if name == 'Read':
-                    print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Edit':
-                    print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Write':
-                    print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Bash':
-                    cmd = inp.get('command', '')
-                    print(f'  Running: {cmd[:120]}'.rstrip(), flush=True)
-                elif name == 'Grep':
-                    print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Glob':
-                    print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                else:
-                    print(f'  Tool: {name}'.rstrip(), flush=True)
-    elif etype == 'result':
-        text = event.get('result', '')
-        if text:
-            print(text, flush=True)
-" 2>/dev/null | ptee
+# Stream agent output in real time
+run_agent "$PROMPT_FILE" --verbose | ptee
 rm -f "$PROMPT_FILE"
 
 CODE_END=$(date +%s)
 CODE_ELAPSED=$(( CODE_END - CODE_START ))
-log "Claude session completed in ${CODE_ELAPSED}s"
+log "Agent session completed in ${CODE_ELAPSED}s"
 
 # ── LINT (deterministic checks) ───────────────────────────
 stage "LINT"
@@ -785,7 +799,7 @@ else
   log "Lint issues found"
 fi
 
-# ── FIX (Claude fixes lint failures — max 2 attempts) ────
+# ── FIX (agent fixes lint failures — max 2 attempts) ─────
 if [ -n "$LINT_FAILURES" ]; then
   stage "FIX"
   update_status "$TASK_NAME — fixing lint"
@@ -819,43 +833,7 @@ Steps:
 8. Print FIX_DONE when finished
 LINT_FIX_EOF
 
-    claude -p "$(cat "$FIX_PROMPT_FILE")" --dangerously-skip-permissions \
-      --model sonnet --output-format stream-json 2>/dev/null | \
-      python3 -uc "
-import sys, json, time, signal
-
-signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('timed out', flush=True), sys.exit(0)))
-
-seen = set()
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try: event = json.loads(line)
-    except json.JSONDecodeError: continue
-    etype = event.get('type', '')
-    if etype == 'assistant':
-        uid = event.get('uuid', '')
-        if uid in seen: continue
-        seen.add(uid)
-        for block in event.get('message', {}).get('content', []):
-            bt = block.get('type', '')
-            if bt == 'text':
-                print(block['text'], flush=True)
-            elif bt == 'tool_use':
-                name = block.get('name', '')
-                inp = block.get('input', {})
-                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
-                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                else: print(f'  Tool: {name}'.rstrip(), flush=True)
-    elif etype == 'result':
-        text = event.get('result', '')
-        if text: print(text, flush=True)
-" 2>/dev/null | ptee
+    run_agent "$FIX_PROMPT_FILE" --model sonnet --timeout 120 | ptee
     rm -f "$FIX_PROMPT_FILE"
 
     # Re-run lint checks
@@ -892,7 +870,7 @@ update_status "$TASK_NAME — shipping"
 if grep -q "FACTORY_RESULT:SUCCESS" "$LOGFILE" 2>/dev/null; then
   log "PR shipped on branch $BRANCH"
 else
-  log "No PR — Claude reported failure"
+  log "No PR — agent reported failure"
 fi
 
 # ── CI GATE (watch GitHub Actions, fix failures) ─────────
@@ -948,41 +926,7 @@ Steps:
 5. Print CI_FIX_DONE when finished
 CI_FIX_EOF
 
-        claude -p "$(cat "$CI_FIX_PROMPT_FILE")" --dangerously-skip-permissions \
-          --model sonnet --output-format stream-json 2>/dev/null | \
-          python3 -uc "
-import sys, json, time, signal
-signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('timed out', flush=True), sys.exit(0)))
-seen = set()
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try: event = json.loads(line)
-    except json.JSONDecodeError: continue
-    etype = event.get('type', '')
-    if etype == 'assistant':
-        uid = event.get('uuid', '')
-        if uid in seen: continue
-        seen.add(uid)
-        for block in event.get('message', {}).get('content', []):
-            bt = block.get('type', '')
-            if bt == 'text':
-                print(block['text'], flush=True)
-            elif bt == 'tool_use':
-                name = block.get('name', '')
-                inp = block.get('input', {})
-                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
-                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                else: print(f'  Tool: {name}'.rstrip(), flush=True)
-    elif etype == 'result':
-        text = event.get('result', '')
-        if text: print(text, flush=True)
-" 2>/dev/null | ptee
+        run_agent "$CI_FIX_PROMPT_FILE" --model sonnet --timeout 120 | ptee
         rm -f "$CI_FIX_PROMPT_FILE"
 
         # Wait for new CI run
@@ -1122,7 +1066,7 @@ for cmd in ['start', 'dev']:
       log "Dev server ready at $DEV_URL — verifying changes"
       DIFF=$(git diff "$BASE_BRANCH...$BRANCH" 2>/dev/null)
 
-      # Pre-extract target route from diff (deterministic, no Claude needed)
+      # Pre-extract target route from diff (deterministic, no agent needed)
       TARGET_ROUTE=$(echo "$DIFF" | python3 -c "
 import sys, re
 routes = set()
@@ -1203,47 +1147,8 @@ Max 2 minutes. Focus on what the task asked for, not unrelated issues.
 VERIFY_EOF
 
       log "Verifying implementation (max 120s)..."
-      VERIFY_OUTPUT=$(claude -p "$(cat "$VERIFY_PROMPT_FILE")" --dangerously-skip-permissions \
-        --model sonnet --output-format stream-json 2>/dev/null | \
-        python3 -uc "
-import sys, json, time, signal
-
-signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('VERIFY_PASS (timed out)', flush=True), sys.exit(0)))
-
-seen = set()
-output = []
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try: event = json.loads(line)
-    except json.JSONDecodeError: continue
-    etype = event.get('type', '')
-    if etype == 'assistant':
-        uid = event.get('uuid', '')
-        if uid in seen: continue
-        seen.add(uid)
-        for block in event.get('message', {}).get('content', []):
-            bt = block.get('type', '')
-            if bt == 'text':
-                print(block['text'], flush=True)
-                output.append(block['text'])
-            elif bt == 'tool_use':
-                name = block.get('name', '')
-                inp = block.get('input', {})
-                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
-                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                else: print(f'  Tool: {name}'.rstrip(), flush=True)
-    elif etype == 'result':
-        text = event.get('result', '')
-        if text:
-            print(text, flush=True)
-            output.append(text)
-" 2>/dev/null | ptee)
+      VERIFY_OUTPUT=$(run_agent "$VERIFY_PROMPT_FILE" --model sonnet --timeout 120 \
+        --timeout-msg "VERIFY_PASS (timed out)" | ptee)
       rm -f "$VERIFY_PROMPT_FILE"
 
       # Check if verification passed or failed
@@ -1252,7 +1157,7 @@ for line in sys.stdin:
         log "Verification FAILED: $FAIL_REASON"
         log "Attempting fix..."
 
-        # Second Claude session to fix the issue
+        # Second agent session to fix the issue
         FIX_PROMPT_FILE=$(mktemp)
         cat > "$FIX_PROMPT_FILE" <<FIX_EOF
 The QA verification of your code change found an issue. Fix it.
@@ -1275,43 +1180,8 @@ Steps:
 FIX_EOF
 
         log "Running fix session..."
-        claude -p "$(cat "$FIX_PROMPT_FILE")" --dangerously-skip-permissions \
-          --model sonnet --output-format stream-json 2>/dev/null | \
-          python3 -uc "
-import sys, json, time, signal
-
-signal.alarm(120)
-signal.signal(signal.SIGALRM, lambda *_: (print('VERIFY_PASS (timed out)', flush=True), sys.exit(0)))
-
-seen = set()
-for line in sys.stdin:
-    line = line.strip()
-    if not line: continue
-    try: event = json.loads(line)
-    except json.JSONDecodeError: continue
-    etype = event.get('type', '')
-    if etype == 'assistant':
-        uid = event.get('uuid', '')
-        if uid in seen: continue
-        seen.add(uid)
-        for block in event.get('message', {}).get('content', []):
-            bt = block.get('type', '')
-            if bt == 'text':
-                print(block['text'], flush=True)
-            elif bt == 'tool_use':
-                name = block.get('name', '')
-                inp = block.get('input', {})
-                if name == 'Read': print(f'  Reading {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Edit': print(f'  Editing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Write': print(f'  Writing {inp.get(\"file_path\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Bash': print(f'  Running: {inp.get(\"command\", \"\")[:120]}'.rstrip(), flush=True)
-                elif name == 'Grep': print(f'  Searching: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                elif name == 'Glob': print(f'  Finding: {inp.get(\"pattern\", \"?\")}'.rstrip(), flush=True)
-                else: print(f'  Tool: {name}'.rstrip(), flush=True)
-    elif etype == 'result':
-        text = event.get('result', '')
-        if text: print(text, flush=True)
-" 2>/dev/null | ptee
+        run_agent "$FIX_PROMPT_FILE" --model sonnet --timeout 120 \
+          --timeout-msg "VERIFY_PASS (timed out)" | ptee
         rm -f "$FIX_PROMPT_FILE"
         log "Fix attempt completed"
       else

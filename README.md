@@ -34,12 +34,15 @@ export SHIPYARD_PROJECTS="$HOME/code"
 ## Usage
 
 ```bash
-./factory.sh                              # run one task
+./factory.sh                              # run one task (Claude by default)
 ./factory.sh --dry-run                    # preview what it would pick
 ./factory.sh --parallel 3                 # run 3 tasks in parallel
 ./factory.sh --issues owner/repo          # pull GitHub issues into tasks/
 ./factory.sh --verify owner/repo          # re-verify all open PRs
 ./factory.sh --verify owner/repo 42       # re-verify a specific PR
+
+SHIPYARD_AGENT=dotbot ./factory.sh        # use dotbot instead of Claude
+SHIPYARD_AGENT=dotbot SHIPYARD_PROVIDER=anthropic ./factory.sh  # dotbot + Anthropic
 ```
 
 Run in its own terminal — not inside another tool. Monitor progress in a second terminal:
@@ -109,7 +112,7 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 1. **Task queue** — `tasks/` folder, one markdown file per task
 2. **Task routing** — finds repo locally, clones from GitHub, or creates new
 3. **Branch isolation** — agents work on feature branches, never the default branch
-4. **Autonomous coding** — Claude runs non-interactively with full permissions
+4. **Autonomous coding** — agent runs non-interactively (Claude or dotbot)
 5. **Test verification** — run tests, fail fast if broken
 6. **PR creation** — open a PR via `gh` CLI for every task
 7. **CI gate** — auto-generates GitHub Actions workflow, watches CI, fixes failures
@@ -134,13 +137,13 @@ Based on patterns from Ramp Inspect and Stripe Minions:
 | FIX | agentic | Claude fixes lint failures (max 2 attempts) |
 | SHIP | deterministic | Confirm PR was opened |
 | CI | deterministic + agentic | Watch GitHub Actions, fix failures (max 2 attempts) |
-| VERIFY | agentic | Claude reads diff, screenshots affected pages via agent-browser |
+| VERIFY | agentic | Agent reads diff, screenshots affected pages via agent-browser |
 | UPDATE | deterministic | Move task file to `tasks/done/`, close GitHub issue |
 | DONE | deterministic | Report result, return to default branch |
 
 ## Configuration
 
-Two files control what the factory tells Claude to do:
+Two files control what the factory tells the agent to do:
 
 - **`standards.md`** — coding standards (error handling, accessibility, naming, etc.)
 - **`workflow.md`** — post-coding steps (commit, push, open PR, etc.)
@@ -149,7 +152,7 @@ Edit either file to match your preferences. The factory auto-detects your defaul
 
 ## Requirements
 
-- [Claude Code](https://claude.ai/claude-code) with `--dangerously-skip-permissions`
+- [Claude Code](https://claude.ai/claude-code) or [dotbot](https://github.com/stevederico/dotbot)
 - `gh` CLI (authenticated)
 - `agent-browser` (optional, for screenshot verification)
 
@@ -162,7 +165,8 @@ Shipyard does the same thing as GitHub Copilot Coding Agent and Claude for GitHu
 - **Task queue with priority** — file-based, numbered for order, not one-off prompts
 - **Configurable standards and workflow** — edit `standards.md` and `workflow.md` to control exactly what the agent does
 - **Screenshot verification** — starts the dev server, reads the diff, screenshots the actual pages that changed
-- **Runs locally** — no data leaves your machine except API calls to Claude
+- **Runs locally** — no data leaves your machine except API calls
+- **Swappable agent** — Claude Code or dotbot (any provider: xAI, Anthropic, OpenAI, Ollama)
 - **GitHub issues integration** — pull labeled issues into the queue, close them on completion
 - **No vendor lock-in** — swap Claude for another model, change the pipeline, fork it
 
