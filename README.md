@@ -7,7 +7,7 @@
 
 # Shipyard
 
-Autonomous code factory. Reads task files from `tasks/`, ships them as PRs.
+Autonomous code factory. Issues go in, PRs come out.
 
 ## How It Works
 
