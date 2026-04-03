@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source srcset="headline.webp" type="image/webp">
+    <img src="headline.jpg" alt="Shipyard" width="750" height="500">
+  </picture>
+</p>
+
 # Shipyard
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
