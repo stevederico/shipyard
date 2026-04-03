@@ -7,9 +7,6 @@
 
 # Shipyard
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/stevederico/shipyard?style=social)](https://github.com/stevederico/shipyard/stargazers)
-
 Autonomous code factory. Reads task files from `tasks/`, ships them as PRs.
 
 ## How It Works
